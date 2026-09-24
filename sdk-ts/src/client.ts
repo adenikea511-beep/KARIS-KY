@@ -515,7 +515,7 @@ export class EscrowClient {
     return this.invoke("revoke_attestation_digest", [index], source);
   }
 
-  /** Record SME collateral metadata. Auth: sme_address. */
+  /** Record SME collateral metadata. Auth: sme_address. ⚠️ Metadata only — not proof of custody. */
   async recordSmeCollateralCommitment(asset: string, amount: string, source?: string): Promise<void> {
     return this.invoke("record_sme_collateral_commitment", [asset, amount], source);
   }
