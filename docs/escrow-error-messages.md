@@ -4,6 +4,8 @@ karis-ky escrow emits typed Soroban contract errors through [`EscrowError`](../e
 Client SDKs **must branch on the numeric `ContractError(code)` value**, not on panic strings or
 diagnostic text.
 
+**TypeScript SDK Users:** See [`sdk-ts/docs/error-handling.md`](../sdk-ts/docs/error-handling.md) for SDK-specific error handling patterns, try/catch examples, and integration guidance.
+
 ## Stability Policy
 
 Error codes are **append-only**. Once a code is assigned:
