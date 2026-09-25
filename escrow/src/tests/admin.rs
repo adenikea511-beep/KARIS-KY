@@ -431,7 +431,10 @@ fn test_record_collateral_stored_and_does_not_block_settle() {
     );
     assert_eq!(c.amount, 5000i128);
     assert_eq!(c.asset, symbol_short!("USDC"));
-    assert_eq!(c.collateral_type, soroban_sdk::String::from_str(&env, "equipment"));
+    assert_eq!(
+        c.collateral_type,
+        soroban_sdk::String::from_str(&env, "equipment")
+    );
     assert_eq!(client.get_sme_collateral_commitment(), Some(c));
 
     client.fund(&investor, &TARGET);
@@ -1399,7 +1402,10 @@ fn auth_audit_append_attestation_requires_admin() {
     let (client, admin, sme) = setup(&env);
     default_init(&client, &env, &admin, &sme);
     env.mock_auths(&[]);
-    client.append_attestation_digest(&symbol_short!(""), &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]));
+    client.append_attestation_digest(
+        &symbol_short!(""),
+        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+    );
 }
 
 #[test]
@@ -1686,8 +1692,14 @@ fn test_208_initial_record_timestamps_equal() {
 
     let commitment = client.record_sme_collateral_commitment(&symbol_short!("GOLD"), &5000i128);
 
-    assert_eq!(commitment.recorded_at, 12345, "recorded_at must be set on first write");
-    assert_eq!(commitment.updated_at, 12345, "updated_at must equal recorded_at on first write");
+    assert_eq!(
+        commitment.recorded_at, 12345,
+        "recorded_at must be set on first write"
+    );
+    assert_eq!(
+        commitment.updated_at, 12345,
+        "updated_at must equal recorded_at on first write"
+    );
     assert_eq!(commitment.amount, 5000);
 }
 
@@ -1722,9 +1734,15 @@ fn test_208_update_preserves_recorded_at_and_advances_updated_at() {
     let updated = client.record_sme_collateral_commitment(&symbol_short!("GOLD"), &9000i128);
 
     // recorded_at stays at the original write time.
-    assert_eq!(updated.recorded_at, 12345, "recorded_at must not change on update");
+    assert_eq!(
+        updated.recorded_at, 12345,
+        "recorded_at must not change on update"
+    );
     // updated_at reflects the update time.
-    assert_eq!(updated.updated_at, 99999, "updated_at must reflect the update timestamp");
+    assert_eq!(
+        updated.updated_at, 99999,
+        "updated_at must reflect the update timestamp"
+    );
     assert_eq!(updated.amount, 9000);
 
     // Persisted state must match the returned struct.
@@ -1815,7 +1833,10 @@ fn test_208_update_blocked_after_settlement() {
 
     // State unchanged.
     let stored = client.get_sme_collateral_commitment().unwrap();
-    assert_eq!(stored.amount, 5000, "collateral must not change after rejected update");
+    assert_eq!(
+        stored.amount, 5000,
+        "collateral must not change after rejected update"
+    );
 }
 
 /// First-time record on a settled escrow is also blocked (prior == None means it's an insert, not update;
@@ -1854,7 +1875,6 @@ fn test_208_first_record_on_settled_escrow_is_allowed() {
     let commitment = client.record_sme_collateral_commitment(&symbol_short!("BOND"), &1000i128);
     assert_eq!(commitment.amount, 1000);
     assert!(client.get_sme_collateral_commitment().is_some());
-
 
     // ──────────────────────────────────────────────────────────────────────────────
     // Legal hold state machine – Issue #406
@@ -1993,9 +2013,11 @@ fn test_208_first_record_on_settled_escrow_is_allowed() {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             client.resume_dispute();
         }));
-        assert!(result.is_ok(), "resume_dispute should succeed during legal hold");
+        assert!(
+            result.is_ok(),
+            "resume_dispute should succeed during legal hold"
+        );
     }
-
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2214,7 +2236,11 @@ fn test_dispute_pause_blocks_withdraw_auto_expires() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client_id, admin, sme) = (deploy_id(&env), Address::generate(&env), Address::generate(&env));
+    let (client_id, admin, sme) = (
+        deploy_id(&env),
+        Address::generate(&env),
+        Address::generate(&env),
+    );
     let client = LiquifactEscrowClient::new(&env, &client_id);
     let investor = Address::generate(&env);
     let token_setup = install_stellar_asset_token(&env);
@@ -2242,7 +2268,9 @@ fn test_dispute_pause_blocks_withdraw_auto_expires() {
 
     // Fund with real token so withdraw can actually transfer.
     token_setup.stellar.mint(&investor, &50_000i128);
-    token_setup.token.approve(&investor, &client_id, &50_000i128, &999_999);
+    token_setup
+        .token
+        .approve(&investor, &client_id, &50_000i128, &999_999);
     client.fund(&investor, &50_000i128);
     // Mint the escrow's balance so withdraw has tokens to send.
     token_setup.stellar.mint(&client_id, &50_000i128);
@@ -2277,7 +2305,11 @@ fn test_dispute_pause_blocks_claim_auto_expires() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client_id, admin, sme) = (deploy_id(&env), Address::generate(&env), Address::generate(&env));
+    let (client_id, admin, sme) = (
+        deploy_id(&env),
+        Address::generate(&env),
+        Address::generate(&env),
+    );
     let client = LiquifactEscrowClient::new(&env, &client_id);
     let investor = Address::generate(&env);
     let token_setup = install_stellar_asset_token(&env);
@@ -2305,7 +2337,9 @@ fn test_dispute_pause_blocks_claim_auto_expires() {
 
     // Fund, mint tokens for claim payout, settle.
     token_setup.stellar.mint(&investor, &60_000i128);
-    token_setup.token.approve(&investor, &client_id, &60_000i128, &999_999);
+    token_setup
+        .token
+        .approve(&investor, &client_id, &60_000i128, &999_999);
     client.fund(&investor, &60_000i128);
     token_setup.stellar.mint(&client_id, &63_000i128); // principal + yield
     client.settle();
@@ -2434,9 +2468,15 @@ fn test_get_dispute_pause_returns_none_after_expiry() {
 
     // get_dispute_pause returns Some while active.
     let state = client.get_dispute_pause();
-    assert!(state.is_some(), "get_dispute_pause must return Some while active");
+    assert!(
+        state.is_some(),
+        "get_dispute_pause must return Some while active"
+    );
     let state = state.unwrap();
-    assert_eq!(state.expires_at_ledger_timestamp, paused_at + pause_duration);
+    assert_eq!(
+        state.expires_at_ledger_timestamp,
+        paused_at + pause_duration
+    );
 
     // Advance past expiry.
     env.ledger().set_timestamp(paused_at + pause_duration);
@@ -2606,7 +2646,10 @@ fn test_set_legal_hold_accepts_open_escrow() {
     let escrow = client.get_escrow();
     assert_eq!(escrow.status, 0, "Escrow should be open");
 
-    client.set_legal_hold(&true, &soroban_sdk::String::from_str(&env, "Compliance hold"));
+    client.set_legal_hold(
+        &true,
+        &soroban_sdk::String::from_str(&env, "Compliance hold"),
+    );
     assert!(client.get_legal_hold(), "Legal hold should be active");
 }
 
@@ -2647,7 +2690,10 @@ fn test_set_legal_hold_accepts_funded_escrow() {
     assert_eq!(escrow.status, 1, "Escrow should be funded");
 
     // Set legal hold on funded escrow should succeed.
-    client.set_legal_hold(&true, &soroban_sdk::String::from_str(&env, "Compliance hold"));
+    client.set_legal_hold(
+        &true,
+        &soroban_sdk::String::from_str(&env, "Compliance hold"),
+    );
     assert!(client.get_legal_hold(), "Legal hold should be active");
 }
 

@@ -184,7 +184,10 @@ fn test_fund_batch_accepts_max_entries() {
 
     // Should succeed.
     let result = client.try_fund_batch(&batch);
-    assert!(result.is_ok(), "fund_batch with MAX_FUND_BATCH entries should succeed");
+    assert!(
+        result.is_ok(),
+        "fund_batch with MAX_FUND_BATCH entries should succeed"
+    );
 
     let escrow = client.get_escrow();
     assert_eq!(escrow.funded_amount, target, "all entries should be funded");

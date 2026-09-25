@@ -397,7 +397,7 @@ fn test_fund_overflow_emits_typed_error() {
 
     // Fund to near-maximum
     client.fund(&investor_a, &(i128::MAX - 1));
-    
+
     // Attempt to add amount that would overflow
     let result = client.try_fund(&investor_b, &2i128);
     assert_contract_error(result, EscrowError::FundedAmountOverflow);
@@ -429,7 +429,7 @@ fn test_fund_with_commitment_overflow_emits_typed_error() {
 
     // Fund to near-maximum
     client.fund(&investor_a, &(i128::MAX - 1));
-    
+
     // Attempt to add amount that would overflow via commitment variant
     let result = client.try_fund_with_commitment(&investor_b, &2i128, &0u64);
     assert_contract_error(result, EscrowError::FundedAmountOverflow);
@@ -3190,8 +3190,8 @@ fn test_fund_batch_equals_n_single_funds() {
             &None,
             &None,
             &None,
-        &None,
-        &None,
+            &None,
+            &None,
         );
     }
 
@@ -3690,10 +3690,15 @@ fn test_206_zero_yield_two_investors_pro_rata() {
     // Each investor contributed half the principal; with zero yield each gets their half back.
     let payout_a = client.compute_investor_payout(&inv_a);
     let payout_b = client.compute_investor_payout(&inv_b);
-    assert_eq!(payout_a, half, "inv_a payout must equal contribution with zero yield");
-    assert_eq!(payout_b, half, "inv_b payout must equal contribution with zero yield");
+    assert_eq!(
+        payout_a, half,
+        "inv_a payout must equal contribution with zero yield"
+    );
+    assert_eq!(
+        payout_b, half,
+        "inv_b payout must equal contribution with zero yield"
+    );
 }
-
 
 /// BUG-013: Test that FundingCloseSnapshot emits a warning when snapshot timestamp >= maturity_date.
 /// This test verifies the fix for the issue where funding closes after the invoice maturity date,
@@ -3738,7 +3743,10 @@ fn test_funding_close_snapshot_validates_against_maturity() {
 
     // Verify escrow transitioned to funded status
     let escrow = client.get_escrow();
-    assert_eq!(escrow.status, 1, "Escrow should be funded after reaching target");
+    assert_eq!(
+        escrow.status, 1,
+        "Escrow should be funded after reaching target"
+    );
 
     // Check the health metrics to verify warning was emitted
     let (warning_type, funded_ratio_bps, time_to_maturity_secs) = client.check_escrow_health();
@@ -3799,7 +3807,10 @@ fn test_partial_settle_close_snapshot_validates_against_maturity() {
 
     // Verify escrow is still open
     let escrow = client.get_escrow();
-    assert_eq!(escrow.status, 0, "Escrow should be open after partial funding");
+    assert_eq!(
+        escrow.status, 0,
+        "Escrow should be open after partial funding"
+    );
 
     // Call partial_settle to transition to funded early
     // This also creates a FundingCloseSnapshot
@@ -3807,7 +3818,10 @@ fn test_partial_settle_close_snapshot_validates_against_maturity() {
 
     // Verify escrow transitioned to funded status
     let escrow = client.get_escrow();
-    assert_eq!(escrow.status, 1, "Escrow should be funded after partial_settle");
+    assert_eq!(
+        escrow.status, 1,
+        "Escrow should be funded after partial_settle"
+    );
 
     // Check the health metrics to verify warning was emitted
     let (warning_type, funded_ratio_bps, time_to_maturity_secs) = client.check_escrow_health();
@@ -3816,7 +3830,10 @@ fn test_partial_settle_close_snapshot_validates_against_maturity() {
         warning_type, 4004,
         "Snapshot after maturity (partial_settle) should emit warning type 4004"
     );
-    assert!(funded_ratio_bps < 10000, "Funded ratio should be less than 100%");
+    assert!(
+        funded_ratio_bps < 10000,
+        "Funded ratio should be less than 100%"
+    );
     assert!(
         time_to_maturity_secs < 0,
         "Time to maturity should be negative (in the past)"
@@ -3865,7 +3882,10 @@ fn test_funding_close_snapshot_before_maturity_no_warning() {
 
     // Verify escrow transitioned to funded status
     let escrow = client.get_escrow();
-    assert_eq!(escrow.status, 1, "Escrow should be funded after reaching target");
+    assert_eq!(
+        escrow.status, 1,
+        "Escrow should be funded after reaching target"
+    );
 
     // Check the health metrics
     let (warning_type, funded_ratio_bps, time_to_maturity_secs) = client.check_escrow_health();
@@ -3920,7 +3940,10 @@ fn test_funding_close_snapshot_no_maturity_constraint() {
 
     // Verify escrow transitioned to funded status
     let escrow = client.get_escrow();
-    assert_eq!(escrow.status, 1, "Escrow should be funded after reaching target");
+    assert_eq!(
+        escrow.status, 1,
+        "Escrow should be funded after reaching target"
+    );
 
     // Check the health metrics
     let (warning_type, funded_ratio_bps, time_to_maturity_secs) = client.check_escrow_health();
@@ -3930,9 +3953,13 @@ fn test_funding_close_snapshot_no_maturity_constraint() {
         warning_type, 0,
         "No warning should be emitted when maturity is 0 (no constraint)"
     );
-    assert_eq!(funded_ratio_bps, 10000, "Funded ratio should be 10000 bps (100%)");
     assert_eq!(
-        time_to_maturity_secs, i64::MAX,
+        funded_ratio_bps, 10000,
+        "Funded ratio should be 10000 bps (100%)"
+    );
+    assert_eq!(
+        time_to_maturity_secs,
+        i64::MAX,
         "Time to maturity should be i64::MAX when no maturity constraint"
     );
 }
