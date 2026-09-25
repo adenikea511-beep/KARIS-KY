@@ -17,6 +17,7 @@ import {
   type FundingCloseSnapshot,
   type SmeCollateralCommitment,
   type EscrowSummary,
+  type EscrowSnapshot,
   type ErrorDiagnostic,
   type EscrowTemplate,
   type InitParams,
@@ -316,6 +317,16 @@ export class EscrowClient {
 
   async getEscrowSummary(): Promise<EscrowSummary> {
     return this.simulate("get_escrow_summary", []);
+  }
+
+  /** Export the full escrow snapshot for disaster recovery or migration. */
+  async exportState(): Promise<EscrowSnapshot> {
+    return this.simulate("export_state", []);
+  }
+
+  /** Import a previously exported snapshot onto a fresh, uninitialized contract instance. */
+  async importState(snapshot: EscrowSnapshot, source?: string): Promise<void> {
+    return this.invoke("import_state", [snapshot], source);
   }
 
   async getSmeCollateralCommitment(): Promise<SmeCollateralCommitment | null> {
