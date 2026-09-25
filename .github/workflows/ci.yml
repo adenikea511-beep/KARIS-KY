@@ -21,10 +21,10 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Check formatting
-        run: cargo fmt -p karis-ky_escrow -- --check
+        run: cargo fmt -p karis_ky_escrow -- --check
 
       - name: Clippy
-        run: cargo clippy -p karis-ky_escrow -- -D warnings
+        run: cargo clippy -p karis_ky_escrow -- -D warnings
 
       - name: Build
         run: cargo build
@@ -183,7 +183,7 @@ jobs:
       # -----------------------------------------------------------------------
 
       - name: Workspace Clippy (all targets)
-        run: cargo clippy -p karis-ky_escrow --all-targets -- -D warnings
+        run: cargo clippy -p karis_ky_escrow --all-targets -- -D warnings
 
       - name: Check coverage (≥ 95%)
         run: |
@@ -191,4 +191,4 @@ jobs:
             --features testutils \
             --fail-under-lines 95 \
             --summary-only \
-            -p karis-ky_escrow
+            -p karis_ky_escrow
