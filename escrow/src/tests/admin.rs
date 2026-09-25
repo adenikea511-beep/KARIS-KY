@@ -2750,3 +2750,307 @@ fn test_migrate_diagnostic_event_version_delta() {
         "migrate should emit MigrationDiagnosticEmitted event before error"
     );
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// Legal Hold + Dispute Pause Interaction Matrix Tests
+// ──────────────────────────────────────────────────────────────────────────
+
+/// Test interaction matrix: legal hold and dispute pause behavior when both
+/// controls are active on the same escrow.
+///
+/// This test exercises all four combinations:
+/// 1. Both hold active + pause active
+/// 2. Hold active + pause inactive
+/// 3. Hold inactive + pause active
+/// 4. Hold inactive + pause inactive
+///
+/// For each state, we verify:
+/// - The correct error is returned (legal hold takes precedence)
+/// - Operations remain blocked when only one control is cleared
+/// - Operations succeed once both controls are cleared
+/// - The controls do not interfere with each other
+#[test]
+fn test_legal_hold_dispute_pause_interaction_matrix() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, admin, sme) = setup(&env);
+    let investor1 = Address::generate(&env);
+    let investor2 = Address::generate(&env);
+    let token = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    // Initialize escrow
+    client.init(
+        &admin,
+        &soroban_sdk::String::from_str(&env, "HOLDPAUSE01"),
+        &sme,
+        &100_000i128,
+        &500i64,
+        &0u64,
+        &token,
+        &None,
+        &treasury,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
+
+    // Fund the escrow
+    client.fund(&investor1, &50_000i128);
+    client.fund(&investor2, &50_000i128);
+
+    // Settle the escrow so we can test claim and withdraw
+    client.settle();
+
+    // ─────────────────────────────────────────────────────────────────────
+    // COMBINATION 1: Both hold and pause active
+    // ─────────────────────────────────────────────────────────────────────
+
+    // Activate legal hold
+    client.set_legal_hold(&true, &String::from_str(&env, "compliance review"));
+    assert!(client.get_legal_hold(), "legal hold should be active");
+
+    // Activate dispute pause (24 hours = 86400 seconds)
+    let pause_duration = 86400u64;
+    client.pause_dispute(
+        &String::from_str(&env, "TICKET-001"),
+        &pause_duration,
+    );
+    assert!(
+        client.is_dispute_paused(),
+        "dispute pause should be active"
+    );
+
+    // Attempt withdraw with both controls active
+    // Should fail with LegalHoldBlocksWithdrawal (123) — legal hold takes precedence
+    let result = env.try_invoke_contract::<_, ()>(
+        &client.contract_id,
+        &Symbol::new(&env, "withdraw"),
+        soroban_vec![&env, &sme],
+    );
+    assert!(result.is_err(), "withdraw should fail when both hold and pause active");
+    assert_panic_contains_error_code(result, 123); // LegalHoldBlocksWithdrawal
+
+    // Attempt claim with both controls active
+    // Should fail with LegalHoldBlocksInvestorClaims (125) — legal hold takes precedence
+    let result = env.try_invoke_contract::<_, ()>(
+        &client.contract_id,
+        &Symbol::new(&env, "claim_investor_payout"),
+        soroban_vec![&env, &investor1],
+    );
+    assert!(result.is_err(), "claim should fail when both hold and pause active");
+    assert_panic_contains_error_code(result, 125); // LegalHoldBlocksInvestorClaims
+
+    // ─────────────────────────────────────────────────────────────────────
+    // COMBINATION 2: Clear legal hold, keep pause active
+    // ─────────────────────────────────────────────────────────────────────
+
+    client.clear_legal_hold();
+    assert!(
+        !client.get_legal_hold(),
+        "legal hold should be cleared"
+    );
+    assert!(
+        client.is_dispute_paused(),
+        "dispute pause should still be active"
+    );
+
+    // Attempt withdraw with hold cleared but pause still active
+    // Should fail with DisputePausedBlocksWithdrawal (167)
+    let result = env.try_invoke_contract::<_, ()>(
+        &client.contract_id,
+        &Symbol::new(&env, "withdraw"),
+        soroban_vec![&env, &sme],
+    );
+    assert!(result.is_err(), "withdraw should fail when pause active");
+    assert_panic_contains_error_code(result, 167); // DisputePausedBlocksWithdrawal
+
+    // Attempt claim with hold cleared but pause still active
+    // Should fail with DisputePausedBlocksInvestorClaims (168)
+    let result = env.try_invoke_contract::<_, ()>(
+        &client.contract_id,
+        &Symbol::new(&env, "claim_investor_payout"),
+        soroban_vec![&env, &investor1],
+    );
+    assert!(result.is_err(), "claim should fail when pause active");
+    assert_panic_contains_error_code(result, 168); // DisputePausedBlocksInvestorClaims
+
+    // ─────────────────────────────────────────────────────────────────────
+    // COMBINATION 3: Pause expired, hold still inactive
+    // ─────────────────────────────────────────────────────────────────────
+
+    // Advance ledger time past the pause expiry
+    env.ledger().with_mut(|l| {
+        l.timestamp = l.timestamp + pause_duration + 100;
+    });
+
+    assert!(
+        !client.is_dispute_paused(),
+        "dispute pause should have expired"
+    );
+    assert!(
+        !client.get_legal_hold(),
+        "legal hold should still be inactive"
+    );
+
+    // Now both controls are inactive; operations should succeed
+    // Withdraw should succeed
+    client.withdraw(&sme);
+
+    // ─────────────────────────────────────────────────────────────────────
+    // COMBINATION 4: Test reactivation in opposite order
+    // ─────────────────────────────────────────────────────────────────────
+
+    // Re-initialize a new escrow to test opposite activation order
+    let investor3 = Address::generate(&env);
+    let investor4 = Address::generate(&env);
+
+    client.init(
+        &admin,
+        &soroban_sdk::String::from_str(&env, "HOLDPAUSE02"),
+        &sme,
+        &100_000i128,
+        &500i64,
+        &0u64,
+        &token,
+        &None,
+        &treasury,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
+
+    client.fund(&investor3, &50_000i128);
+    client.fund(&investor4, &50_000i128);
+    client.settle();
+
+    // Activate dispute pause first
+    client.pause_dispute(
+        &String::from_str(&env, "TICKET-002"),
+        &pause_duration,
+    );
+    assert!(
+        client.is_dispute_paused(),
+        "dispute pause should be active"
+    );
+
+    // Then activate legal hold
+    client.set_legal_hold(&true, &String::from_str(&env, "compliance review"));
+    assert!(client.get_legal_hold(), "legal hold should be active");
+
+    // Attempt withdraw with both active (pause activated first)
+    // Should still fail with LegalHoldBlocksWithdrawal (123) — legal hold precedence is order-independent
+    let result = env.try_invoke_contract::<_, ()>(
+        &client.contract_id,
+        &Symbol::new(&env, "withdraw"),
+        soroban_vec![&env, &sme],
+    );
+    assert!(result.is_err(), "withdraw should fail when both hold and pause active (opposite order)");
+    assert_panic_contains_error_code(result, 123); // LegalHoldBlocksWithdrawal
+
+    // Clear pause first, hold remains active
+    client.resume_dispute(&String::from_str(&env, "dispute resolved"));
+    assert!(
+        !client.is_dispute_paused(),
+        "dispute pause should be resumed"
+    );
+    assert!(
+        client.get_legal_hold(),
+        "legal hold should still be active"
+    );
+
+    // Attempt withdraw with pause cleared but hold still active
+    // Should fail with LegalHoldBlocksWithdrawal (123)
+    let result = env.try_invoke_contract::<_, ()>(
+        &client.contract_id,
+        &Symbol::new(&env, "withdraw"),
+        soroban_vec![&env, &sme],
+    );
+    assert!(result.is_err(), "withdraw should still fail when hold active");
+    assert_panic_contains_error_code(result, 123); // LegalHoldBlocksWithdrawal
+
+    // Clear legal hold
+    client.clear_legal_hold();
+    assert!(
+        !client.get_legal_hold(),
+        "legal hold should be cleared"
+    );
+
+    // Now both are inactive; operation should succeed
+    client.withdraw(&sme);
+}
+
+/// Test that sweep_terminal_dust is NOT blocked by dispute pause
+/// (only by legal hold), allowing treasury operations to proceed during disputes.
+#[test]
+fn test_sweep_terminal_dust_not_blocked_by_dispute_pause() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, admin, sme) = setup(&env);
+    let investor = Address::generate(&env);
+    let token = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    client.init(
+        &admin,
+        &soroban_sdk::String::from_str(&env, "DUSTPAUSE01"),
+        &sme,
+        &100_000i128,
+        &500i64,
+        &0u64,
+        &token,
+        &None,
+        &treasury,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
+
+    client.fund(&investor, &100_000i128);
+    client.settle();
+    client.withdraw(&sme);
+
+    // Activate dispute pause (no legal hold)
+    client.pause_dispute(
+        &String::from_str(&env, "TICKET-DUST-001"),
+        &3600u64,
+    );
+    assert!(
+        client.is_dispute_paused(),
+        "dispute pause should be active"
+    );
+
+    // Attempt sweep_terminal_dust while pause is active
+    // Should succeed because dispute pause does not gate treasury operations
+    client.sweep_terminal_dust(&treasury);
+
+    // Now activate legal hold
+    client.set_legal_hold(&true, &String::from_str(&env, "compliance"));
+
+    // Attempt sweep_terminal_dust with legal hold active
+    // Should fail with LegalHoldBlocksTreasuryDustSweep (30)
+    let result = env.try_invoke_contract::<_, ()>(
+        &client.contract_id,
+        &Symbol::new(&env, "sweep_terminal_dust"),
+        soroban_vec![&env, &treasury],
+    );
+    assert!(result.is_err(), "sweep should fail when legal hold active");
+    assert_panic_contains_error_code(result, 30); // LegalHoldBlocksTreasuryDustSweep
+}
