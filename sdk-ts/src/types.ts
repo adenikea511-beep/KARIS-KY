@@ -79,6 +79,32 @@ export interface EscrowSummary {
   attestation_log_length: number;
 }
 
+/** Snapshot payload returned by `export_state` and accepted by `import_state`. */
+export interface EscrowSnapshot {
+  escrow: InvoiceEscrow;
+  schema_version: number;
+  funding_token: string;
+  treasury: string;
+  registry: string | null;
+  yield_tiers: YieldTier[] | null;
+  funding_close_snapshot: FundingCloseSnapshot | null;
+  min_contribution_floor: string;
+  max_unique_investors_cap: number | null;
+  max_per_investor_cap: string | null;
+  unique_funder_count: number;
+  legal_hold: boolean;
+  legal_hold_clear_delay: string;
+  legal_hold_clearable_at: string | null;
+  allowlist_active: boolean;
+  primary_attestation_hash: string | null;
+  attestation_log: string[];
+  collateral: SmeCollateralCommitment | null;
+  distributed_principal: string;
+  funding_deadline: string | null;
+  pending_admin: string | null;
+  checksum: string;
+}
+
 /** Structured error diagnostic emitted alongside contract errors. */
 export interface ErrorDiagnostic {
   error_code: number;
@@ -95,6 +121,47 @@ export interface EscrowTemplate {
   min_contribution: string | null;
   max_unique_investors: number | null;
   funding_deadline_days: number | null;
+}
+
+// ---------------------------------------------------------------------------
+// Event streaming types
+// ---------------------------------------------------------------------------
+
+/** A contract event returned by Soroban RPC, with the escrow contract ID attached. */
+export interface EscrowEvent {
+  id: string;
+  type: string;
+  contract_id: string;
+  ledger: number;
+  ledger_closed_at: string;
+  paging_token: string;
+  topics: unknown[];
+  value: unknown;
+  /** Decoded event name when the RPC adapter can provide it. */
+  name?: string;
+}
+
+/** Result page returned by a Soroban RPC getEvents adapter. */
+export interface SorobanEventPage {
+  events: EscrowEvent[];
+  latest_ledger?: number;
+  cursor?: string;
+}
+
+/** Controls polling, paging, and cancellation for an escrow event stream. */
+export interface EscrowEventSubscriptionOptions {
+  /** First ledger to query. Defaults to the current ledger. */
+  start_ledger?: number;
+  /** Resume from a Soroban paging token. */
+  cursor?: string;
+  /** Optional decoded event names to deliver. */
+  event_names?: readonly string[];
+  /** Delay between empty polls. Defaults to 5 seconds. */
+  poll_interval_ms?: number;
+  /** Maximum events requested per RPC call. Defaults to 100. */
+  limit?: number;
+  /** Stops the stream without throwing when aborted. */
+  signal?: AbortSignal;
 }
 
 // ---------------------------------------------------------------------------

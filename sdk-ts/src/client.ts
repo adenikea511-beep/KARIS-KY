@@ -17,10 +17,14 @@ import {
   type FundingCloseSnapshot,
   type SmeCollateralCommitment,
   type EscrowSummary,
+  type EscrowSnapshot,
   type ErrorDiagnostic,
   type EscrowTemplate,
   type InitParams,
   type SorobanResult,
+  type EscrowEvent,
+  type SorobanEventPage,
+  type EscrowEventSubscriptionOptions,
   SCHEMA_VERSION,
   CONTRACT_INTERFACE_VERSION,
   MAX_INVOICE_ID_STRING_LEN,
@@ -82,6 +86,19 @@ export interface SorobanRpcClient {
   simulate(contractId: string, functionName: string, args: unknown[]): Promise<unknown>;
   /** Fetch the current ledger info (timestamp, sequence). */
   getLedger(): Promise<{ timestamp: number; sequence: number }>;
+  /** Fetch contract events using Soroban RPC getEvents semantics. */
+  getEvents?(filter: SorobanEventFilter, options: SorobanEventQuery): Promise<SorobanEventPage>;
+}
+
+export interface SorobanEventFilter {
+  type: "contract";
+  contractIds: string[];
+}
+
+export interface SorobanEventQuery {
+  startLedger?: number;
+  cursor?: string;
+  limit?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -154,6 +171,74 @@ export class EscrowClient {
 
   getNetworkPassphrase(): string {
     return this._networkPassphrase;
+  }
+
+  // ---- Event streaming ----
+
+  /**
+   * Stream escrow lifecycle events by polling Soroban RPC getEvents.
+   * The adapter owns XDR decoding; this method handles filtering, paging, and cancellation.
+   */
+  async *subscribeEscrowEvents(
+    options: EscrowEventSubscriptionOptions = {},
+  ): AsyncGenerator<EscrowEvent, void, undefined> {
+    if (!this.rpc.getEvents) {
+      throw new Error("The configured Soroban RPC client does not support getEvents");
+    }
+
+    const pollInterval = options.poll_interval_ms ?? 5_000;
+    const limit = options.limit ?? 100;
+    if (pollInterval < 0 || !Number.isFinite(pollInterval)) {
+      throw new Error("poll_interval_ms must be a finite, non-negative number");
+    }
+    if (!Number.isInteger(limit) || limit <= 0) {
+      throw new Error("limit must be a positive integer");
+    }
+
+    let startLedger = options.start_ledger;
+    let cursor = options.cursor;
+    const eventNames = options.event_names ? new Set(options.event_names) : null;
+    const filter: SorobanEventFilter = { type: "contract", contractIds: [this.contractId] };
+
+    if (startLedger === undefined && cursor === undefined) {
+      startLedger = (await this.rpc.getLedger()).sequence;
+    }
+
+    while (!options.signal?.aborted) {
+      const query: SorobanEventQuery = { limit };
+      if (cursor !== undefined) {
+        query.cursor = cursor;
+      } else if (startLedger !== undefined) {
+        query.startLedger = startLedger;
+      }
+      const page = await this.rpc.getEvents(filter, query);
+      if (options.signal?.aborted) {
+        return;
+      }
+      const events = eventNames
+        ? page.events.filter((event) => event.name !== undefined && eventNames.has(event.name))
+        : page.events;
+
+      for (const event of events) {
+        yield event;
+      }
+
+      if (page.cursor) {
+        cursor = page.cursor;
+      } else {
+        cursor = undefined;
+        const lastLedger = page.events.at(-1)?.ledger;
+        if (lastLedger !== undefined) {
+          startLedger = lastLedger + 1;
+        } else if (page.latest_ledger !== undefined) {
+          startLedger = page.latest_ledger + 1;
+        }
+      }
+
+      if (page.events.length === 0) {
+        await waitForEventPoll(pollInterval, options.signal);
+      }
+    }
   }
 
   // ---- Read-only entrypoints ----
@@ -234,6 +319,16 @@ export class EscrowClient {
     return this.simulate("get_escrow_summary", []);
   }
 
+  /** Export the full escrow snapshot for disaster recovery or migration. */
+  async exportState(): Promise<EscrowSnapshot> {
+    return this.simulate("export_state", []);
+  }
+
+  /** Import a previously exported snapshot onto a fresh, uninitialized contract instance. */
+  async importState(snapshot: EscrowSnapshot, source?: string): Promise<void> {
+    return this.invoke("import_state", [snapshot], source);
+  }
+
   async getSmeCollateralCommitment(): Promise<SmeCollateralCommitment | null> {
     return this.simulate("get_sme_collateral_commitment", []);
   }
@@ -252,6 +347,19 @@ export class EscrowClient {
 
   async hasMaturityLock(): Promise<boolean> {
     return this.simulate("has_maturity_lock", []);
+  }
+
+  /**
+   * Get investor capacity status for this escrow.
+   *
+   * Returns a single-call answer to "can more investors contribute?" without requiring
+   * client-side arithmetic on max_unique_investors_cap and unique_funder_count.
+   *
+   * @returns InvestorCapStatus with max, current, remaining, and is_full fields.
+   *          When no cap is set, max is 2^32-1 and is_full is always false.
+   */
+  async getInvestorCapStatus(): Promise<InvestorCapStatus> {
+    return this.simulate("get_investor_cap_status", []);
   }
 
   // ---- State-mutating entrypoints ----
@@ -279,12 +387,20 @@ export class EscrowClient {
     return this.invoke("init", args, source);
   }
 
-  /** Fund escrow. Auth: investor. */
+  /**
+   * Fund escrow with base yield.
+   * Auth: investor.
+   * See [Fund Parameters Reference](../../../docs/escrow-fund-parameters.md#fund--simple-base-yield-deposit).
+   */
   async fund(investor: string, amount: string, source?: string): Promise<InvoiceEscrow> {
     return this.invoke("fund", [investor, amount], source);
   }
 
-  /** First deposit with tiered yield commitment. Auth: investor. */
+  /**
+   * First deposit with tiered yield commitment (single deposit per investor).
+   * Auth: investor.
+   * See [Fund Parameters Reference](../../../docs/escrow-fund-parameters.md#fund_with_commitment--first-deposit-tiered-yield).
+   */
   async fundWithCommitment(
     investor: string,
     amount: string,
@@ -300,6 +416,27 @@ export class EscrowClient {
     source?: string,
   ): Promise<InvoiceEscrow> {
     return this.invoke("fund_batch", [entries], source);
+  }
+
+  /**
+   * Batch fund multiple investors in a single atomic transaction (FEAT-001).
+   *
+   * Identical per-entry semantics to {@link fund} — each entry requires the investor's
+   * authorization and is validated against the same caps and allowlists. If any single
+   * entry fails the entire transaction reverts.
+   *
+   * Emits one {@code BatchFundCompleted} summary event after all entries succeed, in
+   * addition to the per-entry {@code EscrowFunded} / {@code FundReceived} events.
+   *
+   * @param contributions Array of [investor_address, amount] tuples; max 50 entries.
+   * @param source Optional source account for fee payment.
+   * @returns Updated {@link InvoiceEscrow} state.
+   */
+  async batchFund(
+    contributions: Array<[string, string]>,
+    source?: string,
+  ): Promise<InvoiceEscrow> {
+    return this.invoke("batch_fund", [contributions], source);
   }
 
   /** Settle a funded escrow. Auth: sme_address. */
@@ -402,7 +539,7 @@ export class EscrowClient {
     return this.invoke("revoke_attestation_digest", [index], source);
   }
 
-  /** Record SME collateral metadata. Auth: sme_address. */
+  /** Record SME collateral metadata. Auth: sme_address. ⚠️ Metadata only — not proof of custody. */
   async recordSmeCollateralCommitment(asset: string, amount: string, source?: string): Promise<void> {
     return this.invoke("record_sme_collateral_commitment", [asset, amount], source);
   }
@@ -451,4 +588,18 @@ export class EscrowClient {
     const raw = await this.rpc.invoke(this.contractId, fnName, args, source);
     return raw as T;
   }
+}
+
+function waitForEventPoll(delayMs: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted || delayMs === 0) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, delayMs);
+    signal?.addEventListener("abort", () => {
+      clearTimeout(timer);
+      resolve();
+    }, { once: true });
+  });
 }

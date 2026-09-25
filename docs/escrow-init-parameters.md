@@ -187,6 +187,10 @@ with smaller amounts.
 Limits how many unique addresses can contribute to the escrow. Existing funders
 can still add more principal even at the cap.
 
+`Some(0)` is rejected during `init` with `MaxUniqueInvestorsNotPositive`; zero
+is never treated as an active cap. Use `null` (`None`) for an unlimited number
+of distinct investors.
+
 | Aspect | Detail |
 |--------|--------|
 | **Default** | Unlimited when `null`. |

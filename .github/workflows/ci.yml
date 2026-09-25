@@ -21,16 +21,27 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Check formatting
-        run: cargo fmt -p karis-ky_escrow -- --check
+        run: cargo fmt -p karis_ky_escrow -- --check
 
       - name: Clippy
-        run: cargo clippy -p karis-ky_escrow -- -D warnings
+        run: cargo clippy -p karis_ky_escrow -- -D warnings
 
       - name: Build
         run: cargo build
 
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run cargo-audit (dependency vulnerability scan)
+        run: cargo audit --deny warnings
+
       - name: Run tests
         run: cargo test
+
+      - name: Run snapshot tests
+        run: cargo test --test snapshots
+        env:
+          INSTA_FORCE_ACCEPT: "false"
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
@@ -39,7 +50,40 @@ jobs:
         run: rustup target add wasm32-unknown-unknown
 
       - name: Build WASM
-        run: cargo build --target wasm32-unknown-unknown --release -p karis-ky_escrow
+        run: cargo build --target wasm32-unknown-unknown --release -p karis_ky_escrow
+        env:
+          # Make missing git metadata a hard build error in CI/release builds
+          # so the WASM artifact always carries a real commit hash. Local dev
+          # builds can unset this to allow tarball/shallow-checkout workflows.
+          REQUIRE_GIT_METADATA: "1"
+
+      # -----------------------------------------------------------------------
+      # Build metadata validation
+      # -----------------------------------------------------------------------
+      #
+      # Verifies that the metadata embedded into the WASM artifact by
+      # `escrow/build.rs` (git commit, build timestamp, package version,
+      # and the source-of-truth schema/interface versions) matches the
+      # values declared in `escrow/src/lib.rs`. Fails the build on drift.
+
+      - name: Validate embedded build metadata
+        run: |
+          python3 scripts/validate_build_metadata.py \
+            --json target/build_metadata.json \
+            --lib escrow/src/lib.rs
+
+      - name: Validate WASM build metadata matches current commit
+        # Asserts the metadata embedded in the freshly built WASM artifact
+        # matches the current commit SHA and the expected schema version.
+        # Fails CI if build.rs did not regenerate constants (e.g. stale
+        # incremental builds) or if the schema version drifted.
+        run: |
+          python3 scripts/validate_build_metadata.py \
+            --wasm target/wasm32-unknown-unknown/release/karis_ky_escrow.wasm \
+            --commit "$GITHUB_SHA" \
+            --schema-version "${SCHEMA_VERSION:-6}"
+        env:
+          SCHEMA_VERSION: "6"
 
       # -----------------------------------------------------------------------
       # WASM size tracking
@@ -152,7 +196,7 @@ jobs:
       # -----------------------------------------------------------------------
 
       - name: Workspace Clippy (all targets)
-        run: cargo clippy -p karis-ky_escrow --all-targets -- -D warnings
+        run: cargo clippy -p karis_ky_escrow --all-targets -- -D warnings
 
       - name: Check coverage (≥ 95%)
         run: |
@@ -160,4 +204,4 @@ jobs:
             --features testutils \
             --fail-under-lines 95 \
             --summary-only \
-            -p karis-ky_escrow
+            -p karis_ky_escrow
