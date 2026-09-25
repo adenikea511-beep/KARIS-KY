@@ -182,3 +182,16 @@ The matrix in `escrow/src/tests/legal_hold.rs` covers:
 10. Non-gated ops (`update_maturity`, `propose_admin`, `accept_admin`, getters) are not blocked.
 11. Claim idempotency survives a hold toggle.
 12. Single hold toggle blocks all gated entrypoints in separate escrows.
+
+---
+
+## Interaction with dispute pause
+
+Legal hold and dispute pause are two independent risk-control overlays that can
+be active simultaneously on the same escrow. Both block overlapping
+risk-bearing operations.
+
+See [`docs/OPERATOR_RUNBOOK.md`](OPERATOR_RUNBOOK.md) **§8. Interaction
+Matrix: Legal Hold vs. Dispute Pause** for the full operation matrix,
+precedence rules, and examples of managing both controls during operational or
+compliance events.
