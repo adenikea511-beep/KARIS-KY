@@ -820,6 +820,25 @@ pub struct EscrowHealthMetrics {
     pub estimated_yield_payout: i128,
 }
 
+/// Investor capacity status for this escrow.
+///
+/// Provides a self-explanatory answer to "can more investors contribute?"
+/// in a single read-only entrypoint, avoiding error-prone arithmetic on the client side.
+///
+/// Returned by [`LiquifactEscrow::get_investor_cap_status`].
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct InvestorCapStatus {
+    /// Maximum number of distinct investors allowed (u32::MAX if unlimited).
+    pub max: u32,
+    /// Current number of distinct investors that have contributed.
+    pub current: u32,
+    /// Remaining capacity for new investors (max - current).
+    pub remaining: u32,
+    /// True when current == max (escrow is at capacity).
+    pub is_full: bool,
+}
+
 /// Discovery metadata for this escrow, suitable for registry contracts and off-chain indexers.
 /// Returned by [`LiquifactEscrow::get_registry_listing`].
 #[contracttype]
@@ -3448,6 +3467,48 @@ impl LiquifactEscrow {
             created_at,
             status: escrow.status,
             funding_target: escrow.funding_target,
+        }
+    }
+
+    /// Returns investor capacity status for this escrow.
+    ///
+    /// Provides a self-explanatory, single-call answer to "can more investors contribute?"
+    /// without requiring client-side arithmetic on `max_unique_investors_cap` and `unique_funder_count`.
+    ///
+    /// **Read-only** — no authorization required, no state mutation.
+    ///
+    /// # Returns
+    /// [`InvestorCapStatus`] containing:
+    /// - `max`: Maximum number of distinct investors allowed. Returns `u32::MAX` when no cap is set.
+    /// - `current`: Current number of distinct investors that have contributed.
+    /// - `remaining`: Remaining capacity for new investors (always `max - current`).
+    /// - `is_full`: `true` when `current == max` (escrow is at capacity).
+    ///
+    /// # Notes
+    /// - When no cap is configured (`get_max_unique_investors_cap()` returns `None`),
+    ///   `max` is set to `u32::MAX` and `is_full` is always `false`.
+    /// - When a cap exists, `remaining = max - current`.
+    /// - This is a read-only convenience entrypoint; cap enforcement logic is unchanged.
+    pub fn get_investor_cap_status(env: Env) -> InvestorCapStatus {
+        let max_cap = Self::get_max_unique_investors_cap(env.clone());
+        let current_count = Self::get_unique_funder_count(env);
+
+        let (max, is_full, remaining) = match max_cap {
+            Some(cap) => {
+                let remaining = cap.saturating_sub(current_count);
+                (cap, current_count >= cap, remaining)
+            }
+            None => {
+                // No cap set: use u32::MAX and never mark as full
+                (u32::MAX, false, u32::MAX.saturating_sub(current_count))
+            }
+        };
+
+        InvestorCapStatus {
+            max,
+            current: current_count,
+            remaining,
+            is_full,
         }
     }
 

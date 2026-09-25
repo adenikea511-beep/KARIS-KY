@@ -79,6 +79,18 @@ export interface EscrowSummary {
   attestation_log_length: number;
 }
 
+/** Investor capacity status returned by get_investor_cap_status. */
+export interface InvestorCapStatus {
+  /** Maximum number of distinct investors allowed (2^32-1 if unlimited). */
+  max: number;
+  /** Current number of distinct investors that have contributed. */
+  current: number;
+  /** Remaining capacity for new investors (max - current). */
+  remaining: number;
+  /** True when current == max (escrow is at capacity). */
+  is_full: boolean;
+}
+
 /** Structured error diagnostic emitted alongside contract errors. */
 export interface ErrorDiagnostic {
   error_code: number;
