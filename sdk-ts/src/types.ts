@@ -79,16 +79,30 @@ export interface EscrowSummary {
   attestation_log_length: number;
 }
 
-/** Investor capacity status returned by get_investor_cap_status. */
-export interface InvestorCapStatus {
-  /** Maximum number of distinct investors allowed (2^32-1 if unlimited). */
-  max: number;
-  /** Current number of distinct investors that have contributed. */
-  current: number;
-  /** Remaining capacity for new investors (max - current). */
-  remaining: number;
-  /** True when current == max (escrow is at capacity). */
-  is_full: boolean;
+/** Snapshot payload returned by `export_state` and accepted by `import_state`. */
+export interface EscrowSnapshot {
+  escrow: InvoiceEscrow;
+  schema_version: number;
+  funding_token: string;
+  treasury: string;
+  registry: string | null;
+  yield_tiers: YieldTier[] | null;
+  funding_close_snapshot: FundingCloseSnapshot | null;
+  min_contribution_floor: string;
+  max_unique_investors_cap: number | null;
+  max_per_investor_cap: string | null;
+  unique_funder_count: number;
+  legal_hold: boolean;
+  legal_hold_clear_delay: string;
+  legal_hold_clearable_at: string | null;
+  allowlist_active: boolean;
+  primary_attestation_hash: string | null;
+  attestation_log: string[];
+  collateral: SmeCollateralCommitment | null;
+  distributed_principal: string;
+  funding_deadline: string | null;
+  pending_admin: string | null;
+  checksum: string;
 }
 
 /** Structured error diagnostic emitted alongside contract errors. */

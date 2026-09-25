@@ -32,6 +32,7 @@ export {
   type FundingCloseSnapshot,
   type SmeCollateralCommitment,
   type EscrowSummary,
+  type EscrowSnapshot,
   type ErrorDiagnostic,
   type EscrowTemplate,
   type InitParams,
