@@ -238,6 +238,9 @@ ls target/wasm32v1-none/release/karis-ky_escrow.wasm
 - [ ] Legal hold (`set_legal_hold`) procedure is documented in ops playbook.
 - [ ] Attestation digests and their canonical off-chain encoding are
       documented.
+- [ ] Instance TTL is monitored for every active escrow, and `bump_ttl` is
+  scheduled before expiry to preserve instance state, including attestation
+  records. See [TTL semantics and operational `bump_ttl`](escrow-gas-storage-notes.md).
 - [ ] CI passes: format, clippy, tests, coverage ≥ 95%.
 
 ### Testnet smoke test

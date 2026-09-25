@@ -247,6 +247,21 @@ Off-chain                              On-chain
 The original digest at index N remains in the append log for auditability. Indexers
 consume `AttestationDigestRevoked` events to compute the effective (non-revoked) chain.
 
+## TTL and Storage Expiry Risk
+
+The primary attestation hash and append log are stored in **instance storage**. Soroban
+instance storage has a ledger TTL; if it expires without being extended, its entries can be
+archived or evicted. The attestation log may then become unavailable along with other
+instance state, so an on-chain append log is not by itself a permanent compliance archive.
+
+For active escrows, monitor the instance TTL and call the permissionless `bump_ttl` entrypoint
+before the TTL expires, on a recurring schedule appropriate to the network's TTL limits. The
+instance TTL extension applies to all instance-storage keys, including the attestation log;
+the `allowlisted` argument may be empty when only the instance TTL needs extending. See
+[`escrow-gas-storage-notes.md`](escrow-gas-storage-notes.md) for the entrypoint's behavior.
+Retain the `AttestationDigestAppended` event stream and canonical off-chain documents in
+durable storage as an independent audit record.
+
 ## Security notes
 
 - **Admin key custody:** both entrypoints require `InvoiceEscrow::admin` auth. Production
