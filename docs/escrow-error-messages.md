@@ -4,6 +4,8 @@ karis-ky escrow emits typed Soroban contract errors through [`EscrowError`](../e
 Client SDKs **must branch on the numeric `ContractError(code)` value**, not on panic strings or
 diagnostic text.
 
+**TypeScript SDK Users:** See [`sdk-ts/docs/error-handling.md`](../sdk-ts/docs/error-handling.md) for SDK-specific error handling patterns, try/catch examples, and integration guidance.
+
 ## Stability Policy
 
 Error codes are **append-only**. Once a code is assigned:
@@ -40,6 +42,7 @@ Codes are grouped by domain so SDKs can map coarse categories without parsing va
 | Beneficiary rotation | 160–162 | Governed SME address rotation | 160, 162 |
 | Admin handover / funding deadline | 163–164 | `accept_admin` and post-deadline funding | 163, 164 |
 | Clone escrow | 170–171 | Clone settled escrow to create new instances | 170, 171 |
+| State export / import | 200–203 | Disaster recovery and network migration state snapshot and restore | 200, 203 |
 
 See also [`docs/escrow-legal-hold.md`](escrow-legal-hold.md),
 [`docs/ESCROW_BENEFICIARY_ROTATION.md`](ESCROW_BENEFICIARY_ROTATION.md),
@@ -139,6 +142,10 @@ See also [`docs/escrow-legal-hold.md`](escrow-legal-hold.md),
 | 164 | `FundingDeadlinePassed` | `init`, `fund`, `fund_with_commitment`, `fund_batch` | `funding_deadline` configured and `ledger.timestamp()` past deadline | Funding window closed; do not retry deposits | typed |
 | 170 | `CloneNotSettled` | `clone_settled_escrow` | template escrow status `!= 2` (settled) | Use a settled escrow as template | typed |
 | 171 | `CloneAmountNotPositive` | `clone_settled_escrow` | `new_amount <= 0` | Pass a positive invoice amount for the clone | typed |
+| 200 | `ExportNotInitialized` | `export_state` | `DataKey::Escrow` missing (escrow not initialized) | Call `init` first | typed |
+| 201 | `ImportAlreadyInitialized` | `import_state` | `DataKey::Escrow` already exists (target not fresh) | Import only onto freshly deployed contract | typed |
+| 202 | `ImportSchemaMismatch` | `import_state` | `snapshot.schema_version != SCHEMA_VERSION` | Export from contract running same SCHEMA_VERSION | typed |
+| 203 | `ImportChecksumMismatch` | `import_state` | recomputed checksum differs from snapshot checksum | State was tampered with; verify export file | typed |
 
 ### Legacy panic strings (migration aid)
 
@@ -228,6 +235,10 @@ See also [`docs/escrow-legal-hold.md`](escrow-legal-hold.md),
 | 162 | `New SME address must differ from current beneficiary` |
 | 163 | `No pending admin` |
 | 164 | `Funding deadline has passed` |
+| 200 | `Escrow not initialized (cannot export)` |
+| 201 | `Import target already initialized` |
+| 202 | `Import schema version mismatch` |
+| 203 | `Import checksum mismatch` |
 
 ## Client Guidance
 
@@ -252,6 +263,7 @@ Recommended SDK category mappings:
 | 140–143 | Cancellation or refund failure |
 | 150–152 | Legal-hold clear workflow failure |
 | 160–162 | Beneficiary rotation failure |
+| 200–203 | State export/import failure (disaster recovery) |
 
 ## Security Notes
 

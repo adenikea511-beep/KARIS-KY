@@ -3,8 +3,8 @@ use super::{
     SCHEMA_VERSION,
 };
 use crate::{
-    CollateralCommitmentSnapshot, DataKey, EscrowCloseSnapshot, EscrowError, EscrowHealthMetrics,
-    YieldTier, FundReceived, AdminChanged, LegalHoldSet, EscrowPaused,
+    AdminChanged, CollateralCommitmentSnapshot, DataKey, EscrowCloseSnapshot, EscrowError,
+    EscrowHealthMetrics, EscrowPaused, FundReceived, LegalHoldSet, YieldTier,
 };
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
@@ -406,11 +406,13 @@ fn typed_error_codes_cover_range_boundaries() {
     let digest = BytesN::from_array(&env, &[1u8; 32]);
     attest_client.bind_primary_attestation_hash(&soroban_sdk::Bytes::from_array(&env, &[1u8; 32]));
     assert_contract_error(
-        attest_client.try_bind_primary_attestation_hash(&soroban_sdk::Bytes::from_array(&env, &[1u8; 32])),
+        attest_client
+            .try_bind_primary_attestation_hash(&soroban_sdk::Bytes::from_array(&env, &[1u8; 32])),
         EscrowError::PrimaryAttestationAlreadyBound,
     );
     for i in 0u8..MAX_ATTESTATION_APPEND_ENTRIES as u8 {
-        attest_client.append_attestation_digest(&symbol_short!(""), &BytesN::from_array(&env, &[i; 32]));
+        attest_client
+            .append_attestation_digest(&symbol_short!(""), &BytesN::from_array(&env, &[i; 32]));
     }
     assert_contract_error(
         attest_client.try_append_attestation_digest(&BytesN::from_array(&env, &[0xFF; 32])),
@@ -440,14 +442,26 @@ fn typed_error_codes_cover_range_boundaries() {
     );
     let asset = soroban_sdk::Symbol::new(&env, "GOLD");
     assert_contract_error(
-        collat_client.try_record_sme_collateral_commitment(&asset, &0, &soroban_sdk::String::from_str(&env, "bullion")),
+        collat_client.try_record_sme_collateral_commitment(
+            &asset,
+            &0,
+            &soroban_sdk::String::from_str(&env, "bullion"),
+        ),
         EscrowError::CollateralAmountNotPositive,
     );
-    collat_client.record_sme_collateral_commitment(&asset, &100, &soroban_sdk::String::from_str(&env, "bullion"));
+    collat_client.record_sme_collateral_commitment(
+        &asset,
+        &100,
+        &soroban_sdk::String::from_str(&env, "bullion"),
+    );
     env.ledger()
         .set_timestamp(env.ledger().timestamp().saturating_sub(1));
     assert_contract_error(
-        collat_client.try_record_sme_collateral_commitment(&asset, &200, &soroban_sdk::String::from_str(&env, "bullion")),
+        collat_client.try_record_sme_collateral_commitment(
+            &asset,
+            &200,
+            &soroban_sdk::String::from_str(&env, "bullion"),
+        ),
         EscrowError::CollateralTimestampBackwards,
     );
 
@@ -1721,7 +1735,10 @@ fn test_sme_collateral_commitment() {
     );
     assert_eq!(commitment.amount, 5000);
     assert_eq!(commitment.asset, asset);
-    assert_eq!(commitment.collateral_type, soroban_sdk::String::from_str(&env, "gold_bullion"));
+    assert_eq!(
+        commitment.collateral_type,
+        soroban_sdk::String::from_str(&env, "gold_bullion")
+    );
 
     let stored = client.get_sme_collateral_commitment().unwrap();
     assert_eq!(stored.amount, 5000);
@@ -2665,7 +2682,8 @@ fn test_record_sme_collateral_commitment_semantics() {
     ledger_info.timestamp = 10000;
     env.ledger().set(ledger_info);
 
-    let commitment = client.record_sme_collateral_commitment(&asset_sym, &pledge_amount, &collateral_type);
+    let commitment =
+        client.record_sme_collateral_commitment(&asset_sym, &pledge_amount, &collateral_type);
 
     // Assert that the returned commitment is correct
     assert_eq!(commitment.asset, asset_sym);
@@ -2691,7 +2709,8 @@ fn test_record_sme_collateral_commitment_semantics() {
     ledger_info.timestamp = 12000;
     env.ledger().set(ledger_info);
 
-    let replacement = client.record_sme_collateral_commitment(&asset_sym, &new_pledge_amount, &collateral_type);
+    let replacement =
+        client.record_sme_collateral_commitment(&asset_sym, &new_pledge_amount, &collateral_type);
 
     // Assert replacement details
     assert_eq!(replacement.asset, asset_sym);

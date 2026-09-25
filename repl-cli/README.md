@@ -31,10 +31,28 @@ escrow-repl
 
 Runs in **demo mode** with mock data for testing commands.
 
+### Network presets
+
+The `--network` flag selects a predefined RPC endpoint. Supported values:
+
+| Network   | RPC URL                                        |
+|-----------|------------------------------------------------|
+| `testnet` | `https://soroban-testnet.stellar.org`          |
+| `mainnet` | `https://soroban-mainnet.stellar.org`          |
+| `local`   | `http://localhost:8000`                        |
+
+Unknown values print a helpful error listing the valid presets.
+
 ### Connect to testnet
 
 ```bash
 escrow-repl --network testnet --contract CBXYZ123...
+```
+
+### Connect to mainnet
+
+```bash
+escrow-repl --network mainnet --contract CBXYZ123...
 ```
 
 ### Connect to local validator
@@ -45,8 +63,10 @@ escrow-repl --network local --contract CBXYZ123...
 
 ### Custom RPC endpoint
 
+`--rpc-url` overrides the endpoint selected by `--network`:
+
 ```bash
-escrow-repl --rpc-url https://custom-rpc.example.com --contract CBXYZ123...
+escrow-repl --network testnet --rpc-url https://custom-rpc.example.com --contract CBXYZ123...
 ```
 
 ## Commands
