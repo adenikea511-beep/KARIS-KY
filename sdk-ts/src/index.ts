@@ -4,6 +4,7 @@
 
 export {
   EscrowClient,
+  ValidationError,
   type EscrowClientConfig,
   type SorobanRpcClient,
   type SorobanEventFilter,

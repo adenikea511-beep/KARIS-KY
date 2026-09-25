@@ -70,6 +70,14 @@ export interface EscrowClientConfig {
   specUrl?: string;
 }
 
+/** Raised when an SDK method receives an invalid argument. */
+export class ValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ValidationError";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // SorobanClient (lightweight wrapper interface)
 // ---------------------------------------------------------------------------
@@ -505,8 +513,11 @@ export class EscrowClient {
     return this.invoke("bind_primary_attestation_hash", [digest], source);
   }
 
-  /** Append to attestation log. Auth: admin. Max 32 entries. */
-  async appendAttestationDigest(digest: string, source?: string): Promise<void> {
+  /** Append a 32-byte digest to the attestation log. Auth: admin. Max 32 entries. */
+  async appendAttestationDigest(digest: Uint8Array, source?: string): Promise<void> {
+    if (!(digest instanceof Uint8Array) || digest.byteLength !== 32) {
+      throw new ValidationError("Attestation digest must be exactly 32 bytes");
+    }
     return this.invoke("append_attestation_digest", [digest], source);
   }
 

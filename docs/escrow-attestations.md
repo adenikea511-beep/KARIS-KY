@@ -58,6 +58,23 @@ The 33rd append panics with `"attestation append log capacity reached"`. If more
 incremental anchors are needed, deploy a new escrow instance or extend the log off-chain using
 the event stream.
 
+### TypeScript SDK
+
+With an `EscrowClient` configured for the target contract, hash the canonical document bundle
+and append the resulting 32-byte digest. Node.js `Buffer` values are accepted because `Buffer`
+extends `Uint8Array`.
+
+```ts
+import { createHash } from "node:crypto";
+
+const digest: Uint8Array = createHash("sha256").update(canonicalBundle).digest();
+await client.appendAttestationDigest(digest);
+```
+
+The SDK checks the digest length before making an RPC call and throws the exported
+`ValidationError` if it is not exactly 32 bytes. RPC errors, including rate limits, are
+propagated unchanged.
+
 ### `revoke_attestation_digest(index: u32)`
 
 | Property | Value |
