@@ -236,7 +236,108 @@ cargo clippy --all-targets -- -D warnings
 | `get_dispute_pause` | Retrieve active dispute pause state (ticket, timestamps). |
 | `bind_primary_attestation_hash` | Admin sets a single-write 32-byte digest. |
 | `append_attestation_digest` | Admin appends to bounded audit log. |
-| `record_sme_collateral_commitment` | SME records 
+| `record_sme_collateral_commitment` | SME records collateral pledge (metadata only). |
+| `get_escrow` | Read current escrow state. |
+| `get_version` | Read stored `DataKey::Version`. |
+
+---
+
+## Storage guardrails
+
+The escrow stores per-investor contribution entries inside the contract
+instance. That map is intentionally bounded.
+
+- Supported investor cardinality: configured via `max_unique_investors` at
+  `init` (optional cap); no hard-coded global max since investor cardinality
+  is escrow-specific.
+- Attestation append log: bounded at `MAX_ATTESTATION_APPEND_ENTRIES = 32`.
+- Dust sweep: capped at `MAX_DUST_SWEEP_AMOUNT = 100_000_000` base units per
+  call.
+
+---
+
+## Test organization
+
+Escrow tests are organized by feature area under
+[`escrow/src/test/`](escrow/src/test):
+
+| File | Coverage area |
+|------|--------------|
+| `init.rs` | Initialization, invoice-id validation, getters, init-shaped baselines |
+| `funding.rs` | Funding, contribution accounting, snapshots, tier selection |
+| `settlement.rs` | Settlement, withdrawal, investor claims, maturity boundaries, dust sweep |
+| `admin.rs` | Admin-governed state changes, legal hold, migration guards, collateral metadata |
+| `integration.rs` | External token-wrapper assumptions, metadata-only integration checks |
+| `properties.rs` | Proptest-based invariants |
+
+Shared helpers live in [`escrow/src/test.rs`](escrow/src/test.rs). Each test
+creates its own fresh `Env` so feature modules do not rely on hidden
+cross-test state.
+
+### Snapshot regression tests
+
+[`escrow/tests/snapshots.rs`](escrow/tests/snapshots.rs) contains snapshot tests
+that verify contract state structure and transitions using the `insta` crate.
+These tests compare serialized contract state against stored `.snap` files
+committed to the repository.
+
+**When snapshot files update:**
+
+Snapshot files are automatically committed to the repository when the escrow
+contract's `InvoiceEscrow` struct layout changes (new fields, field type changes,
+etc.). This ensures the repository history tracks state structure evolution
+alongside WASM deployments.
+
+**To update snapshots locally:**
+
+```bash
+# Run snapshot tests and accept all changes
+cargo insta test --review
+```
+
+Alternatively, use the non-interactive accept mode:
+
+```bash
+# Run snapshot tests with auto-accept (writes new .snap files)
+INSTA_FORCE_ACCEPT=true cargo test --test snapshots
+```
+
+Then commit the updated `.snap` files to git.
+
+**CI verification:**
+
+The CI pipeline runs snapshot tests with `INSTA_FORCE_ACCEPT=false` (the default),
+which causes the build to fail if:
+- A snapshot test produces output that differs from the committed `.snap` file.
+- A new `.snap` file was created but not committed to git.
+
+This prevents stale or uncommitted snapshots from masking accidental state structure changes.
+
+---
+
+## Architecture Decision Records
+
+Core design decisions are captured in [`docs/adr/`](docs/adr/):
+
+| ADR | Decision |
+|-----|---------|
+| [ADR-001](docs/adr/ADR-001-state-model.md) | Escrow state model (`status` 0–3, forward-only transitions) |
+| [ADR-002](docs/adr/ADR-002-auth-boundaries.md) | Authorization boundaries per role (admin, SME, investor, treasury) |
+| [ADR-003](docs/adr/ADR-003-settlement-flow.md) | Two-phase settlement flow and funding-close snapshot |
+| [ADR-004](docs/adr/ADR-004-legal-hold.md) | Legal / compliance hold mechanism |
+| [ADR-005](docs/adr/ADR-005-tiered-yield.md) | Optional tiered yield and per-investor commitment locks |
+| [ADR-006](docs/adr/ADR-006-dust-sweep-and-token-safety.md) | Treasury dust sweep and SEP-41 token safety wrapper |
+
+---
+
+## Token integration security checklist
+
+See [`docs/ESCROW_TOKEN_INTEGRATION_CHECKLIST.md`](docs/ESCROW_TOKEN_INTEGRATION_CHECKLIST.md)
+for supported token assumptions, explicit unsupported token warnings, and the
+integration-layer responsibilities required when this contract interacts with
+external token contracts.
+
+---
 
 MIT
 
