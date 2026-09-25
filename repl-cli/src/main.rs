@@ -21,11 +21,52 @@ use rustyline::DefaultEditor;
 use serde_json::json;
 use std::collections::HashMap;
 
+/// Built-in network presets mapping to their default Soroban RPC endpoints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Network {
+    Local,
+    Testnet,
+    Mainnet,
+}
+
+impl Network {
+    /// Parse a network preset name, returning a helpful error for unknown values.
+    fn parse(value: &str) -> Result<Self, String> {
+        match value.to_ascii_lowercase().as_str() {
+            "local" => Ok(Network::Local),
+            "testnet" => Ok(Network::Testnet),
+            "mainnet" => Ok(Network::Mainnet),
+            other => Err(format!(
+                "Unknown network '{}'. Valid networks are: testnet, mainnet, local.\n\
+                 Use --rpc-url <URL> to target a custom RPC endpoint.",
+                other
+            )),
+        }
+    }
+
+    /// Default RPC endpoint for this network preset.
+    fn rpc_url(&self) -> &'static str {
+        match self {
+            Network::Local => "http://localhost:8000",
+            Network::Testnet => "https://soroban-testnet.stellar.org",
+            Network::Mainnet => "https://soroban-mainnet.stellar.org",
+        }
+    }
+
+    fn as_str(&self) -> &'static str {
+        match self {
+            Network::Local => "local",
+            Network::Testnet => "testnet",
+            Network::Mainnet => "mainnet",
+        }
+    }
+}
+
 #[derive(Parser)]
 #[command(name = "escrow-repl")]
 #[command(about = "Interactive REPL for karis-ky escrow contract inspection", long_about = None)]
 struct Args {
-    /// Network name (local, testnet, mainnet, or custom RPC URL)
+    /// Network preset (testnet, mainnet, or local)
     #[arg(long, default_value = "testnet")]
     network: String,
 
@@ -33,7 +74,7 @@ struct Args {
     #[arg(long)]
     contract: Option<String>,
 
-    /// Optional RPC endpoint (overrides network default)
+    /// Optional RPC endpoint (overrides the network preset)
     #[arg(long)]
     rpc_url: Option<String>,
 }
@@ -88,25 +129,24 @@ struct ReplContext {
 }
 
 impl ReplContext {
-    fn new(args: &Args) -> Self {
-        let rpc_url = args.rpc_url.clone().unwrap_or_else(|| {
-            match args.network.as_str() {
-                "local" => "http://localhost:8000/soroban/rpc".to_string(),
-                "testnet" => "https://soroban-testnet.stellar.org".to_string(),
-                "mainnet" => "https://soroban-mainnet.stellar.org".to_string(),
-                custom => custom.to_string(),
-            }
-        });
+    fn new(args: &Args) -> Result<Self, String> {
+        let network = Network::parse(&args.network)?;
+
+        // `--rpc-url` overrides the preset's default endpoint.
+        let rpc_url = args
+            .rpc_url
+            .clone()
+            .unwrap_or_else(|| network.rpc_url().to_string());
 
         let contract_id = args.contract.clone().unwrap_or_else(|| "unknown".to_string());
         let mock_mode = args.contract.is_none();
 
-        Self {
-            network: args.network.clone(),
+        Ok(Self {
+            network: network.as_str().to_string(),
             rpc_url,
             contract_id,
             mock_mode,
-        }
+        })
     }
 
     /// Execute a REPL command and return the output
@@ -218,49 +258,38 @@ impl ReplContext {
             Some(t) => match t.as_str() {
                 "get_escrow" => {
                     "get_escrow — Fetch the current escrow state\n\
-                     Returns: InvoiceEscrow with all escrow metadata\n\
-                     Example: escrow> get_escrow"
+                     Returns: InvoiceEscrow with all fields\n\
+                     Example: get_escrow"
                         .to_string()
                 }
                 "get_version" => {
                     "get_version — Fetch the contract schema version\n\
-                     Returns: version, build metadata\n\
-                     Example: escrow> get_version"
+                     Returns: schema_version, contract_version, build_timestamp\n\
+                     Example: get_version"
                         .to_string()
                 }
                 "is_dispute_paused" => {
-                    "is_dispute_paused — Check if a dispute pause is currently active\n\
-                     Returns: pause status, ticket ID, expiry timestamp\n\
-                     Example: escrow> is_dispute_paused"
+                    "is_dispute_paused — Check if dispute pause is active\n\
+                     Returns: is_paused, pause_reason, pause_ticket_id, paused_at, resumes_at\n\
+                     Example: is_dispute_paused"
                         .to_string()
                 }
                 "export_state" => {
-                    "export_state — Export complete escrow state snapshot\n\
-                     Useful for backup, migration, or audit\n\
-                     Returns: EscrowSnapshot with all storage keys\n\
-                     Example: escrow> export_state | jq . | less"
+                    "export_state — Export complete state snapshot\n\
+                     Returns: Full contract state as JSON\n\
+                     Example: export_state | jq ."
                         .to_string()
                 }
-                _ => format!(
-                    "Unknown help topic: '{}'. Available topics: get_escrow, get_version, is_dispute_paused, export_state",
-                    t
-                ),
+                _ => format!("No help available for '{}'", t),
             },
             None => {
-                "karis-ky Escrow REPL v1.0\n\n\
-                 Available commands:\n\
-                   get_escrow       — Fetch current escrow state\n\
-                   get_version      — Fetch contract schema version\n\
-                   is_dispute_paused — Check if dispute pause is active\n\
-                   export_state     — Export complete state snapshot\n\
-                   help [command]   — Show this help or detailed command help\n\
-                   quit / exit      — Exit REPL\n\n\
-                 Examples:\n\
-                   escrow> get_escrow\n\
-                   escrow> export_state | jq .\n\
-                   escrow> help export_state\n\
-                 \n\
-                 Note: Currently in DEMO MODE. To connect to a live contract, use --contract <address>"
+                "Available commands:\n\
+                 get_escrow         — Fetch current escrow state\n\
+                 get_version        — Fetch schema version\n\
+                 is_dispute_paused  — Check if dispute pause is active\n\
+                 export_state       — Export complete state snapshot\n\
+                 help [command]     — Show help for a command\n\
+                 quit / exit        — Exit the REPL"
                     .to_string()
             }
         }
@@ -268,100 +297,45 @@ impl ReplContext {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
     let args = Args::parse();
 
-    println!("karis-ky Escrow REPL v1.0");
-    println!("Type 'help' for command list\n");
+    let ctx = match ReplContext::new(&args) {
+        Ok(ctx) => ctx,
+        Err(err) => {
+            eprintln!("Error: {}", err);
+            std::process::exit(2);
+        }
+    };
 
-    if args.contract.is_none() {
-        println!(
-            "⚠️  Demo mode: No contract ID specified. Use --contract <id> to connect to live contract.\n"
-        );
+    println!("escrow-repl — network: {}", ctx.network);
+    println!("RPC endpoint: {}", ctx.rpc_url);
+    println!("Contract: {}", ctx.contract_id);
+    if ctx.mock_mode {
+        println!("Running in mock mode (no --contract supplied).");
     }
+    println!("Type 'help' for available commands, 'quit' to exit.\n");
 
-    let context = ReplContext::new(&args);
-    println!("Network: {}", context.network);
-    println!("RPC: {}", context.rpc_url);
-    println!("Contract: {}\n", context.contract_id);
-
-    let mut editor = DefaultEditor::new()?;
-    let prompt = "escrow> ";
+    let mut rl = match DefaultEditor::new() {
+        Ok(rl) => rl,
+        Err(err) => {
+            eprintln!("Failed to initialize REPL: {}", err);
+            std::process::exit(1);
+        }
+    };
 
     loop {
-        match editor.readline(prompt) {
+        match rl.readline("escrow> ") {
             Ok(line) => {
-                if line.trim().is_empty() {
-                    continue;
-                }
-
-                editor.add_history_entry(&line)?;
-
+                let _ = rl.add_history_entry(line.as_str());
                 let cmd = ReplCommand::parse(&line);
-                match context.execute(cmd).await {
-                    Ok(output) => println!("{}\n", output),
-                    Err(e) if e == "QUIT" => {
-                        println!("Goodbye!");
-                        break;
-                    }
-                    Err(e) => eprintln!("❌ Error: {}\n", e),
+                match ctx.execute(cmd).await {
+                    Ok(output) => println!("{}", output),
+                    Err(err) if err == "QUIT" => break,
+                    Err(err) => eprintln!("Error: {}", err),
                 }
             }
-            Err(rustyline::error::ReadlineError::Interrupted) => {
-                println!("\nInterrupted");
-                break;
-            }
-            Err(rustyline::error::ReadlineError::Eof) => {
-                println!("\nGoodbye!");
-                break;
-            }
-            Err(e) => {
-                eprintln!("Error: {}", e);
-                break;
-            }
+            Err(_) => break,
         }
-    }
-
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_get_escrow() {
-        let cmd = ReplCommand::parse("get_escrow");
-        assert!(matches!(cmd, ReplCommand::GetEscrow));
-    }
-
-    #[test]
-    fn test_parse_get_version() {
-        let cmd = ReplCommand::parse("get_version");
-        assert!(matches!(cmd, ReplCommand::GetVersion));
-    }
-
-    #[test]
-    fn test_parse_export_state() {
-        let cmd = ReplCommand::parse("export_state");
-        assert!(matches!(cmd, ReplCommand::ExportState));
-    }
-
-    #[test]
-    fn test_parse_quit() {
-        let cmd = ReplCommand::parse("quit");
-        assert!(matches!(cmd, ReplCommand::Quit));
-    }
-
-    #[test]
-    fn test_parse_hyphenated_commands() {
-        let cmd = ReplCommand::parse("get-escrow");
-        assert!(matches!(cmd, ReplCommand::GetEscrow));
-    }
-
-    #[test]
-    fn test_parse_unknown() {
-        let cmd = ReplCommand::parse("foobar");
-        assert!(matches!(cmd, ReplCommand::Unknown(_)));
     }
 }

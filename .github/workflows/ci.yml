@@ -72,6 +72,19 @@ jobs:
             --json target/build_metadata.json \
             --lib escrow/src/lib.rs
 
+      - name: Validate WASM build metadata matches current commit
+        # Asserts the metadata embedded in the freshly built WASM artifact
+        # matches the current commit SHA and the expected schema version.
+        # Fails CI if build.rs did not regenerate constants (e.g. stale
+        # incremental builds) or if the schema version drifted.
+        run: |
+          python3 scripts/validate_build_metadata.py \
+            --wasm target/wasm32-unknown-unknown/release/karis_ky_escrow.wasm \
+            --commit "$GITHUB_SHA" \
+            --schema-version "${SCHEMA_VERSION:-6}"
+        env:
+          SCHEMA_VERSION: "6"
+
       # -----------------------------------------------------------------------
       # WASM size tracking
       # -----------------------------------------------------------------------
