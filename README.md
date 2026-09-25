@@ -6,6 +6,50 @@ tokenized invoices until settlement and is maintained under the `karis-ky` proje
 
 ---
 
+## FAQ
+
+**How do I run the tests?**
+Run `cargo test` from the repository root to execute the full workspace test suite, or `cargo test -p karis-ky_escrow` to target the escrow crate only. CI mirrors these commands, so a green local run is a good pre-push signal.
+See also: [Quick start](#quick-start) and [`escrow/`](escrow/).
+
+**What is the current schema version?**
+The authoritative version is the `SCHEMA_VERSION` constant in `escrow/src/lib.rs`, stored on-chain under `DataKey::Version` at `init`. The current value is `7`; production instances should match the deployed WASM.
+See also: [Schema version changelog](#schema-version-changelog-datakeyversion).
+
+**Which tokens are supported?**
+The escrow binds a single funding token at `init` via the `FundingToken` key, so any SEP-41 / Soroban-compatible token contract can be used. The token is fixed for the lifetime of the escrow and cannot be changed after initialization.
+See also: [Escrow init parameters](docs/escrow-init-parameters.md).
+
+**How do I perform a legal hold?**
+An admin calls `set_legal_hold` to activate or clear a compliance hold on an escrow, which blocks settlement and payout flows while active. Legal hold is distinct from a dispute pause and is coordinated per the operator runbook.
+See also: [`docs/OPERATOR_RUNBOOK.md`](docs/OPERATOR_RUNBOOK.md).
+
+**What happens if the admin key is lost?**
+Admin-gated operations (legal hold, dispute pause, attestations, cloning) become unavailable, so admin keys should be held in governance multisig / custody. Recovery requires redeploying or re-initializing under a new admin per the runbook; there is no on-chain key-recovery path.
+See also: [Release runbook: build, deploy, verify](#release-runbook-build-deploy-verify).
+
+**What is a dispute pause and how does it differ from a legal hold?**
+`pause_dispute` temporarily freezes an escrow due to a dispute, and `resume_dispute` (or auto-expiration) lifts it; `is_dispute_paused` / `get_dispute_pause` report the state. It is a separate mechanism from `set_legal_hold`, which is a compliance control.
+See also: [Escrow contract — public entrypoints](#escrow-contract--public-entrypoints).
+
+**How is the maturity date enforced?**
+`settle` requires SME auth and enforces the invoice maturity date, so a funded escrow cannot be settled before maturity. Maturity is set at `init` and is part of the stored `InvoiceEscrow`.
+See also: [Escrow init parameters](docs/escrow-init-parameters.md).
+
+**How do yield tiers work?**
+`fund_with_commitment` records the first deposit with an optional lock period and selects a tiered yield from the `YieldTierTable`. Per-investor effective yield is stored under `InvestorEffectiveYield` and used at claim time.
+See also: [Escrow fund parameters](docs/escrow-fund-parameters.md).
+
+**How do I migrate an existing escrow?**
+Call `migrate(from_version)`, which currently emits typed errors on all paths (codes 90–92) and has no silent migration path to version 6. Additive-key upgrades need no `migrate` call, but struct-layout changes require a redeploy or an explicit migration implementation.
+See also: [`migrate` entrypoint — typed error semantics](#migrate-entrypoint--typed-error-semantics).
+
+**How do I set up the REPL / CLI?**
+Source `scripts/local-env.sh` to spin up a local Soroban validator, identities, test token, and a deployed contract in one command. Then use the Stellar CLI (or the TypeScript SDK) to interact with the deployed contract.
+See also: [Local development (one-command)](#local-development-one-command) and [TypeScript SDK](#typescript-sdk).
+
+---
+
 ## Prerequisites
 
 - Rust 1.70+ (stable)
@@ -192,13 +236,9 @@ cargo clippy --all-targets -- -D warnings
 | `get_dispute_pause` | Retrieve active dispute pause state (ticket, timestamps). |
 | `bind_primary_attestation_hash` | Admin sets a single-write 32-byte digest. |
 | `append_attestation_digest` | Admin appends to bounded audit log. |
-| `record_sme_collateral_commitment` | SME records collateral pledge (metadata only). |
+| `record_sme_collateral_commitment` | ⚠️ **Metadata only — not proof of custody.** SME records collateral pledge. See [`docs/escrow-sme-collateral.md`](docs/escrow-sme-collateral.md). |
 | `get_escrow` | Read current escrow state. |
 | `get_version` | Read stored `DataKey::Version`. |
-| `check_escrow_health` | Read-only health check: returns `(warning_type, funded_ratio_bps, time_to_maturity_secs)` for risk monitoring. |
-| `get_escrow_health` | Formatted health summary with warning label, percentage, and recommendations. |
-| `export_state` | Admin serializes all enumerable instance-storage state into an `EscrowSnapshot` (disaster recovery / migration). |
-| `import_state` | Admin restores instance-storage state from an `EscrowSnapshot` onto a fresh, uninitialized instance. |
 
 ---
 
@@ -226,13 +266,52 @@ Escrow tests are organized by feature area under
 | `init.rs` | Initialization, invoice-id validation, getters, init-shaped baselines |
 | `funding.rs` | Funding, contribution accounting, snapshots, tier selection |
 | `settlement.rs` | Settlement, withdrawal, investor claims, maturity boundaries, dust sweep |
-| `admin.rs` | Admin-governed state changes, legal hold, dispute pause, migration guards, collateral metadata |
+| `admin.rs` | Admin-governed state changes, legal hold, migration guards, collateral metadata |
 | `integration.rs` | External token-wrapper assumptions, metadata-only integration checks |
 | `properties.rs` | Proptest-based invariants |
 
 Shared helpers live in [`escrow/src/test.rs`](escrow/src/test.rs). Each test
 creates its own fresh `Env` so feature modules do not rely on hidden
 cross-test state.
+
+### Snapshot regression tests
+
+[`escrow/tests/snapshots.rs`](escrow/tests/snapshots.rs) contains snapshot tests
+that verify contract state structure and transitions using the `insta` crate.
+These tests compare serialized contract state against stored `.snap` files
+committed to the repository.
+
+**When snapshot files update:**
+
+Snapshot files are automatically committed to the repository when the escrow
+contract's `InvoiceEscrow` struct layout changes (new fields, field type changes,
+etc.). This ensures the repository history tracks state structure evolution
+alongside WASM deployments.
+
+**To update snapshots locally:**
+
+```bash
+# Run snapshot tests and accept all changes
+cargo insta test --review
+```
+
+Alternatively, use the non-interactive accept mode:
+
+```bash
+# Run snapshot tests with auto-accept (writes new .snap files)
+INSTA_FORCE_ACCEPT=true cargo test --test snapshots
+```
+
+Then commit the updated `.snap` files to git.
+
+**CI verification:**
+
+The CI pipeline runs snapshot tests with `INSTA_FORCE_ACCEPT=false` (the default),
+which causes the build to fail if:
+- A snapshot test produces output that differs from the committed `.snap` file.
+- A new `.snap` file was created but not committed to git.
+
+This prevents stale or uncommitted snapshots from masking accidental state structure changes.
 
 ---
 
@@ -260,181 +339,9 @@ external token contracts.
 
 ---
 
-## SME collateral metadata
-
-See [`docs/escrow-sme-collateral.md`](docs/escrow-sme-collateral.md) for the risk-team handling rules for `record_sme_collateral_commitment` and `CollateralRecordedEvt`. The record is SME-reported metadata only; it is not proof of custody, token movement, or an enforceable on-chain claim.
-
----
-
-## Escrow Health Checks (FEAT-011)
-
-The contract emits typed health warnings when escrow enters risk states (underfunding, imminent maturity, past maturity, etc.) via the new health check API.
-
-### Typed warning codes
-
-| Code | Condition | Mitigation |
-|------|-----------|-----------|
-| 4001 | **Low funding ratio** (< 50% of target) | Increase investor outreach or extend maturity |
-| 4002 | **Close to maturity** (< 1 day) | Verify stakeholders ready for settlement |
-| 4003 | **Over maturity** (past deadline + underfunded) | **Critical:** Admin must extend, settle partial, or escalate |
-| 4004 | **Funding stalled** (reserved for future use) | Investor outreach or maturity extension |
-| 0 | No warning | Escrow in good health |
-
-### Read-only health endpoints
-
-**Low-level:** `check_escrow_health() -> (u32, i64, i64)`
-- Returns: `(warning_type, funded_ratio_bps, time_to_maturity_secs)`
-- No auth required; 100k gas
-
-**High-level:** `get_escrow_health() -> EscrowHealth`
-- Formatted with human-readable labels, percentages, and recommendations
-- Ideal for dashboards and client display
-
-### Example
-
-```rust
-let (warning_type, funded_ratio_bps, time_to_maturity_secs) = 
-    client.check_escrow_health();
-
-// If warning_type == 4001, funding ratio is below 50%
-// If warning_type == 4003, past maturity and underfunded (critical)
-```
-
-See [FEAT_011_HEALTH_CHECK_SPECIFICATION.md](FEAT_011_HEALTH_CHECK_SPECIFICATION.md) for full specification.
-
----
-
-## Interactive REPL CLI (FEAT-010)
-
-The `escrow-repl` tool enables inspection and debugging of contract state without writing test code.
-
-### Quick start
-
-```bash
-cd repl-cli
-cargo build --release
-
-# Demo mode (mock data)
-./target/release/escrow-repl
-
-# Connect to testnet contract
-./target/release/escrow-repl --network testnet --contract CBXYZ123...
-```
-
-### MVP commands
-
-| Command | Purpose |
-|---------|---------|
-| `get_escrow` | Fetch current escrow state |
-| `get_version` | Fetch contract schema version |
-| `is_dispute_paused` | Check if dispute pause is active |
-| `export_state` | Export complete state snapshot for backup |
-
-All output is pretty-printed JSON, suitable for piping to `jq` or file redirection.
-
-### Examples
-
-```bash
-escrow> get_escrow
-escrow> export_state | jq '.escrow | {status, funded_amount, funding_target}'
-escrow> export_state > backup.json
-escrow> help export_state
-```
-
-See [repl-cli/README.md](repl-cli/README.md) and [docs/escrow-sim-stellar-cli.md (Section 17)](docs/escrow-sim-stellar-cli.md#17-interactive-repl-cli-feature_220) for full documentation.
-
----
-
-## SME collateral metadata
-
-See [`docs/escrow-sme-collateral.md`](docs/escrow-sme-collateral.md) for the risk-team handling rules for `record_sme_collateral_commitment` and `CollateralRecordedEvt`. The record is SME-reported metadata only; it is not proof of custody, token movement, or an enforceable on-chain claim.
-
-## Security notes
-
-- **Typed errors:** stable numeric [`EscrowError`](docs/escrow-error-messages.md) codes are
-  append-only; SDKs must branch on `ContractError(code)`, not panic strings. See
-  [`docs/escrow-error-messages.md`](docs/escrow-error-messages.md) for the full reference.
-- **Auth:** state-changing entrypoints use `require_auth()` for the
-  appropriate role (admin, SME, investor, **treasury** for dust sweep).
-- **Legal hold:** governance-controlled; misuse risk is mitigated by using a
-  multisig `admin` and operational policy (see
-  [`docs/OPERATOR_RUNBOOK.md`](docs/OPERATOR_RUNBOOK.md)).
-- **Dispute pause:** admin-triggered temporary freeze (separate from legal hold) for
-  resolving invoice disputes. Auto-expires after configured duration. See
-  [`docs/DEPLOYER_SECURITY.md`](docs/DEPLOYER_SECURITY.md) for operational guidance.
-- **Collateral record:** SME-reported metadata only; not proof of custody,
-  token movement, reserved balance, or an enforceable on-chain claim.
-- **Token integration:** fee-on-transfer, rebasing, and hook tokens are
-  **explicitly out of scope**. Post-transfer balance-equality checks in
-  [`external_calls`](escrow/src/external_calls.rs) emit typed `EscrowError` codes
-  36–41 on non-compliant tokens.
-- **Overflow:** `fund` uses `checked_add` on `funded_amount`.
-- **Dust sweep:** gated on terminal escrow status, per-call cap
-  (`MAX_DUST_SWEEP_AMOUNT`), actual balance, legal hold, and treasury auth;
-  only the configured SEP-41 token is transferred with post-transfer balance
-  equality checks.
-- **Tiered yield / claim locks:** first-deposit discipline prevents changing
-  an investor's tier after their initial leg; claim timestamps are ledger-based.
-- **Funding snapshot:** single-write immutability avoids shifting pro-rata
-  denominators after close.
-- **Registry ref:** stored for discoverability only; must not be used as
-  authority without verifying the registry contract independently.
-- **migrate:** emits typed errors on all paths in the current release — no silent
-  migration work is performed. See [`docs/escrow-error-messages.md`](docs/escrow-error-messages.md).
-
-### Contract type clone/derive safety
-
-- `DataKey` keeps `Clone` because key wrappers are reused for storage
-  get/set paths.
-- `InvoiceEscrow` and `SmeCollateralCommitment` intentionally do **not**
-  derive `Clone`; this prevents accidental full-state duplication in hot paths.
-- `InvoiceEscrow` and `SmeCollateralCommitment` derive `PartialEq` for
-  deterministic state assertions in tests and `Debug` for failure diagnostics.
-- `init` publishes `EscrowInitialized` from stored state instead of cloning
-  the in-memory escrow snapshot, reducing avoidable copy overhead.
-
----
-
-## CI
-
-Run these before opening a PR:
-
-```bash
-cargo fmt --all -- --check
-cargo clippy -p karis-ky_escrow -- -D warnings
-cargo build
-cargo test
-cargo llvm-cov --features testutils --fail-under-lines 95 --summary-only -p karis-ky_escrow
-```
-
-### Cargo.lock process notes
-
-- Keep `Cargo.lock` committed and reviewed for every dependency change.
-- For routine updates, use a dedicated dependency branch and include lockfile diff context in PR.
-- For emergency advisory bumps, prioritize minimal version movement and full regression checks.
-- After any lockfile update, re-run the full CI command set above before merge.
-- Dependency policy, cadence, and emergency workflow are documented in
-  [`docs/escrow-dependency-policy.md`](docs/escrow-dependency-policy.md).
-
----
-
-## Developer Resources
-
-| Resource | Description |
-|----------|-------------|
-| [State Machine Diagram](docs/state-machine.md) | Mermaid UML diagram of all states (0–5), valid transitions, blocked operations per state, and legal hold / dispute pause overlays |
-| [Token Integration Guide](docs/token-integration-guide.md) | USDC/USDT/EURC stablecoin examples, fee-on-transfer warning, rebasing pitfalls, and pre-integration test script |
-| [Init Parameter Reference](docs/escrow-init-parameters.md) | Every init parameter, valid ranges, conservative vs. aggressive examples, gas costs |
-| [Local Environment Script](scripts/local-env.sh) | One-command local Soroban dev environment setup |
-| [Deployer Script](scripts/deploy.sh) | Config-driven contract deployment with .env support |
-| [TypeScript SDK](sdk-ts/) | Typed client wrapper, contract types, error codes, examples |
-| [Contract Spec](sdk-ts/spec.json) | Machine-readable ABI spec for SDK consumption |
-| [CLI Simulation Recipes](docs/escrow-sim-stellar-cli.md) | All entrypoint invocations via Stellar CLI |
-| [Demo Series](docs/demos/README.md) | Step-by-step lifecycle walkthrough |
-| [Error Code Reference](docs/escrow-error-messages.md) | Stable typed error codes and recovery actions |
-
----
-
-## Contributing
-
 MIT
+
+## Handsoff notes
+
+<!-- handsoff-issue-608 -->
+- #608: Issue 120: Add property test: `export_state` + `import_state` is identity

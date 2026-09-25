@@ -349,6 +349,19 @@ export class EscrowClient {
     return this.simulate("has_maturity_lock", []);
   }
 
+  /**
+   * Get investor capacity status for this escrow.
+   *
+   * Returns a single-call answer to "can more investors contribute?" without requiring
+   * client-side arithmetic on max_unique_investors_cap and unique_funder_count.
+   *
+   * @returns InvestorCapStatus with max, current, remaining, and is_full fields.
+   *          When no cap is set, max is 2^32-1 and is_full is always false.
+   */
+  async getInvestorCapStatus(): Promise<InvestorCapStatus> {
+    return this.simulate("get_investor_cap_status", []);
+  }
+
   // ---- State-mutating entrypoints ----
 
   /** Initialize escrow. One-shot; panics on duplicate. Auth: admin. */
@@ -526,7 +539,7 @@ export class EscrowClient {
     return this.invoke("revoke_attestation_digest", [index], source);
   }
 
-  /** Record SME collateral metadata. Auth: sme_address. */
+  /** Record SME collateral metadata. Auth: sme_address. ⚠️ Metadata only — not proof of custody. */
   async recordSmeCollateralCommitment(asset: string, amount: string, source?: string): Promise<void> {
     return this.invoke("record_sme_collateral_commitment", [asset, amount], source);
   }

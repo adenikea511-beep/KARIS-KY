@@ -147,7 +147,7 @@ fn withdraw_rejects_wrong_caller() {
 
     // Generate a different address (not the SME)
     let impostor = Address::generate(&env);
-    
+
     // This should panic because impostor != sme
     client.withdraw(&impostor);
 }
@@ -995,7 +995,6 @@ fn settle_with_ledger_clock_skew_succeeds() {
     let settled = client.settle();
     assert_eq!(settled.status, 2, "clock skew must not break settlement");
 }
-
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Terminal dust sweep
@@ -1870,7 +1869,6 @@ fn test_funding_blocked_after_partial_settle() {
     client.fund(&late_investor, &1_000i128);
 }
 
-
 // ──────────────────────────────────────────────────────────────────────────────
 // Partial settlement with amount parameter tests
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1886,7 +1884,7 @@ fn settle_partial_amount_keeps_status_funded() {
     let investor = fund_to_target(&client, &env);
     let escrow = client.get_escrow();
     assert_eq!(escrow.status, 1u32, "Pre-condition: status must be funded");
-    
+
     // Settle 50% of the funded amount
     let partial_amount = escrow.funded_amount / 2;
     client.settle(&Some(partial_amount));
@@ -1908,7 +1906,7 @@ fn settle_full_amount_transitions_to_settled() {
 
     let investor = fund_to_target(&client, &env);
     let escrow = client.get_escrow();
-    
+
     // Settle 100% explicitly with the full amount
     client.settle(&Some(escrow.funded_amount));
 
@@ -1928,7 +1926,7 @@ fn settle_without_amount_fully_settles() {
     default_init(&client, &env, &admin, &sme);
 
     let investor = fund_to_target(&client, &env);
-    
+
     // Call settle without amount parameter
     client.settle(&None);
 
@@ -1950,24 +1948,24 @@ fn multiple_partial_settlements_accumulate() {
     let investor = fund_to_target(&client, &env);
     let escrow = client.get_escrow();
     let total = escrow.funded_amount;
-    
+
     // First settlement: 30%
     let first_settlement = total / 3;
     client.settle(&Some(first_settlement));
-    
+
     // Verify status still funded
     assert_eq!(client.get_escrow().status, 1u32);
-    
+
     // Second settlement: 30%
     client.settle(&Some(first_settlement));
-    
+
     // Verify status still funded
     assert_eq!(client.get_escrow().status, 1u32);
-    
+
     // Final settlement: remaining 40%
     let remaining = total - (first_settlement * 2);
     client.settle(&Some(remaining));
-    
+
     // Verify status is now settled
     assert_eq!(client.get_escrow().status, 2u32);
 }
@@ -1982,14 +1980,17 @@ fn investor_can_claim_after_partial_settlement() {
 
     let investor = fund_to_target(&client, &env);
     let escrow = client.get_escrow();
-    
+
     // Partial settlement: 60%
     let partial_amount = (escrow.funded_amount * 60) / 100;
     client.settle(&Some(partial_amount));
-    
+
     // Investor should be able to claim payout
     let payout = client.compute_investor_payout(&investor);
-    assert!(payout > 0, "investor should have positive payout after partial settlement");
+    assert!(
+        payout > 0,
+        "investor should have positive payout after partial settlement"
+    );
 }
 
 /// Pro-rata distribution: investor gets share of settled amount, not full amount
@@ -2002,32 +2003,32 @@ fn partial_settlement_pro_rata_distribution() {
 
     let investor_a = Address::generate(&env);
     let investor_b = Address::generate(&env);
-    
+
     // Each investor contributes half
     let half_target = TARGET / 2;
     client.fund(&investor_a, &half_target);
     client.fund(&investor_b, &half_target);
-    
+
     let escrow = client.get_escrow();
-    
+
     // Settle only 40% of total
     let partial_amount = (escrow.funded_amount * 40) / 100;
     client.settle(&Some(partial_amount));
-    
+
     // Each investor should get their pro-rata share of the 40%
     let payout_a = client.compute_investor_payout(&investor_a);
     let payout_b = client.compute_investor_payout(&investor_b);
-    
+
     // Payouts should be equal (both invested the same amount)
     assert_eq!(
         payout_a, payout_b,
         "equal investors should get equal payouts"
     );
-    
+
     // Both payouts should be based on 40% of funded amount, not 100%
-    let settled_share_per_investor = (partial_amount / 2) + 
-        ((partial_amount * escrow.yield_bps as i128) / 10_000) / 2;
-    
+    let settled_share_per_investor =
+        (partial_amount / 2) + ((partial_amount * escrow.yield_bps as i128) / 10_000) / 2;
+
     // Allow for rounding differences
     assert!(
         (payout_a - settled_share_per_investor).abs() <= 2,
@@ -2045,13 +2046,13 @@ fn full_settlement_via_partial_allows_claims() {
 
     let investor = fund_to_target(&client, &env);
     let escrow = client.get_escrow();
-    
+
     // Settle all in one partial call
     client.settle(&Some(escrow.funded_amount));
-    
+
     // Status should be 2
     assert_eq!(client.get_escrow().status, 2u32);
-    
+
     // Investor should be able to claim
     let payout = client.compute_investor_payout(&investor);
     assert!(payout > 0, "investor should have positive payout");
@@ -2067,10 +2068,10 @@ fn partial_settlement_emits_correct_event() {
 
     let investor = fund_to_target(&client, &env);
     let escrow = client.get_escrow();
-    
+
     // Clear previous events
     env.events().all();
-    
+
     // Partial settlement
     let partial_amount = escrow.funded_amount / 2;
     client.settle(&Some(partial_amount));
@@ -2078,10 +2079,10 @@ fn partial_settlement_emits_correct_event() {
     // Check events
     let contract_events = env.events().all();
     let events = contract_events.events();
-    
+
     // Should have at least one event (EscrowPartiallySettled)
     assert!(!events.is_empty(), "should emit event");
-    
+
     // The event name should indicate partial settlement, not full settlement
     // (This is a simplified check; more detailed event inspection depends on event parsing)
 }
@@ -2096,17 +2097,17 @@ fn full_settlement_via_partial_emits_settled_event() {
 
     let investor = fund_to_target(&client, &env);
     let escrow = client.get_escrow();
-    
+
     // Clear previous events
     env.events().all();
-    
+
     // Full settlement via partial
     client.settle(&Some(escrow.funded_amount));
 
     // Check events
     let contract_events = env.events().all();
     let events = contract_events.events();
-    
+
     assert!(!events.is_empty(), "should emit event");
 }
 
@@ -2121,7 +2122,7 @@ fn settle_partial_exceeding_funded_panics() {
 
     let investor = fund_to_target(&client, &env);
     let escrow = client.get_escrow();
-    
+
     // Try to settle more than funded
     let over_funded = escrow.funded_amount + 1;
     client.settle(&Some(over_funded));
@@ -2137,7 +2138,7 @@ fn settle_partial_zero_amount_panics() {
     default_init(&client, &env, &admin, &sme);
 
     let investor = fund_to_target(&client, &env);
-    
+
     // Try to settle zero
     client.settle(&Some(0));
 }
@@ -2152,7 +2153,7 @@ fn settle_partial_negative_amount_panics() {
     default_init(&client, &env, &admin, &sme);
 
     let investor = fund_to_target(&client, &env);
-    
+
     // Try to settle negative
     client.settle(&Some(-100i128));
 }
@@ -2163,13 +2164,13 @@ fn settle_partial_negative_amount_panics() {
 fn partial_settlement_respects_maturity() {
     let env = Env::default();
     let (client, admin, sme) = setup(&env);
-    
+
     // Initialize with maturity timestamp far in future
     let future_maturity = 9_999_999_999u64;
     let escrow_id = env.register(LiquifactEscrow, ());
     let client = super::LiquifactEscrowClient::new(&env, &escrow_id);
     let funding_token = install_stellar_asset_token(&env);
-    
+
     client.init(
         &admin,
         &soroban_sdk::String::from_str(&env, "INV_TOK"),
@@ -2189,11 +2190,11 @@ fn partial_settlement_respects_maturity() {
         &None,
         &None,
     );
-    
+
     // Fund the escrow
     let investor = Address::generate(&env);
     client.fund(&investor, &TARGET);
-    
+
     // Try to settle before maturity (should panic)
     env.mock_all_auths();
     client.settle(&Some(TARGET / 2));
@@ -2210,23 +2211,25 @@ fn settle_none_parameter_settles_all() {
     let investor = fund_to_target(&client, &env);
     let escrow = client.get_escrow();
     let total = escrow.funded_amount;
-    
+
     // Settle with None parameter
     client.settle(&None);
-    
+
     // Should reach status 2 immediately
     assert_eq!(client.get_escrow().status, 2u32);
-    
+
     // Investor payout should be based on full amount
     let payout = client.compute_investor_payout(&investor);
-    
+
     // Payout should equal: total + coupon
     let coupon = (total * escrow.yield_bps as i128) / 10_000;
     let expected_payout = total + coupon;
-    
-    assert_eq!(payout, expected_payout, "full settlement payout should include all principal and coupon");
-}
 
+    assert_eq!(
+        payout, expected_payout,
+        "full settlement payout should include all principal and coupon"
+    );
+}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Yield Reinvestment Tests
@@ -2266,7 +2269,10 @@ fn reinvest_yield_requires_settled_source_escrow() {
     );
 
     let result = source_client.try_reinvest_yield(&investor, &target_client.address, &1_000i128);
-    assert!(result.is_err(), "source escrow must be settled before reinvesting");
+    assert!(
+        result.is_err(),
+        "source escrow must be settled before reinvesting"
+    );
 }
 
 #[test]
@@ -2305,7 +2311,10 @@ fn reinvest_yield_allows_rollover_into_funding_target() {
 
     source_client.reinvest_yield(&investor, &target_client.address, &1_000i128);
     let target = target_client.get_escrow();
-    assert_eq!(target.status, 0u32, "target escrow must remain in funding state");
+    assert_eq!(
+        target.status, 0u32,
+        "target escrow must remain in funding state"
+    );
 }
 
 #[test]

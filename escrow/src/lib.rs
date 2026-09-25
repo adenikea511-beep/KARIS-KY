@@ -652,7 +652,7 @@ pub enum DataKey {
     /// Blocks `fund`, `settle`, and `withdraw`. Stores [`DisputePauseState`].
     /// Absent ⇒ no dispute pause active.
     DisputePaused,
-    /// Amount that has been settled in a partial settlement. When this equals `funded_amount`, 
+    /// Amount that has been settled in a partial settlement. When this equals `funded_amount`,
     /// the escrow is fully settled. Absent ⇒ 0 (no partial settlement).
     SettledAmount,
     /// Whether an investor has elected to reinvest their yield (when settling).
@@ -818,6 +818,25 @@ pub struct EscrowHealthMetrics {
     pub average_contribution_size: i128,
     /// Flat coupon on the whole `funded_amount`; does not account for tiered per-investor yield.
     pub estimated_yield_payout: i128,
+}
+
+/// Investor capacity status for this escrow.
+///
+/// Provides a self-explanatory answer to "can more investors contribute?"
+/// in a single read-only entrypoint, avoiding error-prone arithmetic on the client side.
+///
+/// Returned by [`LiquifactEscrow::get_investor_cap_status`].
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct InvestorCapStatus {
+    /// Maximum number of distinct investors allowed (u32::MAX if unlimited).
+    pub max: u32,
+    /// Current number of distinct investors that have contributed.
+    pub current: u32,
+    /// Remaining capacity for new investors (max - current).
+    pub remaining: u32,
+    /// True when current == max (escrow is at capacity).
+    pub is_full: bool,
 }
 
 /// Discovery metadata for this escrow, suitable for registry contracts and off-chain indexers.
@@ -1080,7 +1099,7 @@ pub struct YieldDistributionSnapshot {
 ///
 /// Serializes all enumerable instance-storage keys into a single structure for
 /// off-chain backup and on-chain restoration via [`LiquifactEscrow::import_state`].
-/// 
+///
 /// Use [`LiquifactEscrow::export_state`] to capture current state and
 /// [`LiquifactEscrow::import_state`] to restore onto a fresh, uninitialized instance.
 #[contracttype]
@@ -1142,7 +1161,7 @@ pub enum SettlementNftSnapshot {
 }
 
 /// State of a dispute pause on an escrow instance.
-/// 
+///
 /// Dispute pause is **separate** from legal hold and is triggered by admin for dispute
 /// resolution (e.g., invoice validity challenge). It auto-expires after the configured
 /// duration or is manually resumed.
@@ -2294,7 +2313,10 @@ impl LiquifactEscrow {
         };
 
         // Determine warning type based on conditions.
-        let warning_type = if time_to_maturity_secs < 0 && escrow.status == 0 && escrow.funded_amount < escrow.funding_target {
+        let warning_type = if time_to_maturity_secs < 0
+            && escrow.status == 0
+            && escrow.funded_amount < escrow.funding_target
+        {
             4003 // OverMaturity: past maturity, still open, and unfunded.
         } else if time_to_maturity_secs >= 0 && time_to_maturity_secs < 86400 {
             // Close to maturity (< 1 day away).
@@ -2545,15 +2567,13 @@ impl LiquifactEscrow {
         let now_ts = env.ledger().timestamp();
         let mut vh: Vec<(u32, u64)> = Vec::new(&env);
         vh.push_back((SCHEMA_VERSION, now_ts));
-        env.storage()
-            .instance()
-            .set(&DataKey::VersionHistory, &vh);
+        env.storage().instance().set(&DataKey::VersionHistory, &vh);
 
         env.storage()
             .instance()
             .set(&DataKey::FundingToken, &funding_token);
         env.storage().instance().set(&DataKey::Treasury, &treasury);
-        
+
         // Cache token metadata at init time to reduce external calls on fund operations
         let token_client = TokenClient::new(&env, &funding_token);
         let decimals = token_client.decimals();
@@ -2565,7 +2585,7 @@ impl LiquifactEscrow {
         env.storage()
             .instance()
             .set(&DataKey::TokenMetadataCache, &token_cache);
-        
+
         if let Some(ref r) = registry {
             env.storage().instance().set(&DataKey::RegistryRef, r);
         }
@@ -2573,7 +2593,9 @@ impl LiquifactEscrow {
         // Optional KYC registry: when set, `fund` / `fund_with_commitment` require the investor
         // to be verified. See `LiquifactEscrow::check_kyc` for the expected contract interface.
         if let Some(ref kyc) = kyc_provider_contract {
-            env.storage().instance().set(&DataKey::KycProviderContract, kyc);
+            env.storage()
+                .instance()
+                .set(&DataKey::KycProviderContract, kyc);
         }
 
         // Optional tiered admin roles. Absent ⇒ `admin` is implicit `AdminRole::Full`.
@@ -3176,7 +3198,10 @@ impl LiquifactEscrow {
             i64::MAX
         };
 
-        let warning_type = if time_to_maturity_secs < 0 && escrow.status == 0 && escrow.funded_amount < escrow.funding_target {
+        let warning_type = if time_to_maturity_secs < 0
+            && escrow.status == 0
+            && escrow.funded_amount < escrow.funding_target
+        {
             4003
         } else if time_to_maturity_secs >= 0 && time_to_maturity_secs < 86400 {
             if funded_ratio_bps < 5000 {
@@ -3209,8 +3234,9 @@ impl LiquifactEscrow {
     /// # Authorization
     /// None — pure read; no auth required.
     pub fn get_escrow_health(env: Env) -> EscrowHealth {
-        let (warning_type, funded_ratio_bps, time_to_maturity_secs) = Self::check_escrow_health(env.clone());
-        
+        let (warning_type, funded_ratio_bps, time_to_maturity_secs) =
+            Self::check_escrow_health(env.clone());
+
         let warning_label = match warning_type {
             4001 => String::from_str(&env, "low_funding"),
             4002 => String::from_str(&env, "close_to_maturity"),
@@ -3368,8 +3394,7 @@ impl LiquifactEscrow {
         };
 
         // Estimated yield payout
-        let estimated_yield_payout =
-            (escrow.funded_amount * escrow.yield_bps as i128) / 10_000i128;
+        let estimated_yield_payout = (escrow.funded_amount * escrow.yield_bps as i128) / 10_000i128;
 
         EscrowHealthMetrics {
             funding_progress_percent,
@@ -3421,10 +3446,7 @@ impl LiquifactEscrow {
             yield_token,
             oracle_contract,
             nft_contract,
-            settlement_nft: env
-                .storage()
-                .instance()
-                .get(&DataKey::SettlementNft),
+            settlement_nft: env.storage().instance().get(&DataKey::SettlementNft),
         }
     }
 
@@ -3448,6 +3470,48 @@ impl LiquifactEscrow {
             created_at,
             status: escrow.status,
             funding_target: escrow.funding_target,
+        }
+    }
+
+    /// Returns investor capacity status for this escrow.
+    ///
+    /// Provides a self-explanatory, single-call answer to "can more investors contribute?"
+    /// without requiring client-side arithmetic on `max_unique_investors_cap` and `unique_funder_count`.
+    ///
+    /// **Read-only** — no authorization required, no state mutation.
+    ///
+    /// # Returns
+    /// [`InvestorCapStatus`] containing:
+    /// - `max`: Maximum number of distinct investors allowed. Returns `u32::MAX` when no cap is set.
+    /// - `current`: Current number of distinct investors that have contributed.
+    /// - `remaining`: Remaining capacity for new investors (always `max - current`).
+    /// - `is_full`: `true` when `current == max` (escrow is at capacity).
+    ///
+    /// # Notes
+    /// - When no cap is configured (`get_max_unique_investors_cap()` returns `None`),
+    ///   `max` is set to `u32::MAX` and `is_full` is always `false`.
+    /// - When a cap exists, `remaining = max - current`.
+    /// - This is a read-only convenience entrypoint; cap enforcement logic is unchanged.
+    pub fn get_investor_cap_status(env: Env) -> InvestorCapStatus {
+        let max_cap = Self::get_max_unique_investors_cap(env.clone());
+        let current_count = Self::get_unique_funder_count(env);
+
+        let (max, is_full, remaining) = match max_cap {
+            Some(cap) => {
+                let remaining = cap.saturating_sub(current_count);
+                (cap, current_count >= cap, remaining)
+            }
+            None => {
+                // No cap set: use u32::MAX and never mark as full
+                (u32::MAX, false, u32::MAX.saturating_sub(current_count))
+            }
+        };
+
+        InvestorCapStatus {
+            max,
+            current: current_count,
+            remaining,
+            is_full,
         }
     }
 
@@ -3517,10 +3581,7 @@ impl LiquifactEscrow {
 
         // Auto-migrate: if an old Vec-based log exists but no count has been set,
         // migrate each old entry to the new individual-entry format first.
-        let has_old_log = env
-            .storage()
-            .instance()
-            .has(&DataKey::AttestationAppendLog);
+        let has_old_log = env.storage().instance().has(&DataKey::AttestationAppendLog);
         let has_count = env
             .storage()
             .instance()
@@ -3712,7 +3773,10 @@ impl LiquifactEscrow {
 
     /// Get the pre-computed yield distribution share for an investor (if auto-distribution is enabled).
     /// **Persistent** storage. Absent ⇒ `None` (no automatic distribution or already claimed).
-    fn get_persistent_yield_distribution_share(env: &Env, investor: Address) -> Option<YieldDistributionSnapshot> {
+    fn get_persistent_yield_distribution_share(
+        env: &Env,
+        investor: Address,
+    ) -> Option<YieldDistributionSnapshot> {
         env.storage()
             .persistent()
             .get(&DataKey::YieldDistributionShare(investor))
@@ -3873,7 +3937,11 @@ impl LiquifactEscrow {
     /// Resolves `addr`'s effective [`AdminRole`]: an explicit [`DataKey::AdminRoles`] entry if
     /// present, else implicit [`AdminRole::Full`] when `addr == escrow.admin` (backward-compatible
     /// default for deployments that never configured tiered roles), else [`None`].
-    fn effective_admin_role(env: &Env, escrow: &InvoiceEscrow, addr: &Address) -> Option<AdminRole> {
+    fn effective_admin_role(
+        env: &Env,
+        escrow: &InvoiceEscrow,
+        addr: &Address,
+    ) -> Option<AdminRole> {
         let roles: Option<Map<Address, AdminRole>> =
             env.storage().instance().get(&DataKey::AdminRoles);
         if let Some(roles) = roles {
@@ -3890,7 +3958,12 @@ impl LiquifactEscrow {
 
     /// Requires `caller` to authorize and hold at least `min_role` (see the capabilities matrix
     /// on [`AdminRole`]).
-    fn require_admin_role(env: &Env, escrow: &InvoiceEscrow, caller: &Address, min_role: AdminRole) {
+    fn require_admin_role(
+        env: &Env,
+        escrow: &InvoiceEscrow,
+        caller: &Address,
+        min_role: AdminRole,
+    ) {
         caller.require_auth();
         let role = Self::effective_admin_role(env, escrow, caller)
             .unwrap_or_else(|| fail(env, EscrowError::InsufficientAdminRole));
@@ -3996,7 +4069,9 @@ impl LiquifactEscrow {
             signers,
             threshold,
         };
-        env.storage().instance().set(&DataKey::MultisigPolicy, &policy);
+        env.storage()
+            .instance()
+            .set(&DataKey::MultisigPolicy, &policy);
     }
 
     /// Checks `operation` against the configured [`MultisigPolicy`] (if any). When a policy
@@ -4119,7 +4194,11 @@ impl LiquifactEscrow {
     /// the same idempotency and funding-history bookkeeping as
     /// [`LiquifactEscrow::claim_investor_payout`], on `investor`'s behalf, and returns the
     /// computed payout.
-    pub fn release_large_claim_multisig(env: Env, signers: Vec<Address>, investor: Address) -> i128 {
+    pub fn release_large_claim_multisig(
+        env: Env,
+        signers: Vec<Address>,
+        investor: Address,
+    ) -> i128 {
         ensure(
             &env,
             !Self::legal_hold_active(&env),
@@ -4132,12 +4211,7 @@ impl LiquifactEscrow {
         );
 
         let escrow = Self::get_escrow(env.clone());
-        Self::require_multisig_or_admin(
-            &env,
-            &escrow,
-            Symbol::new(&env, "large_claim"),
-            signers,
-        );
+        Self::require_multisig_or_admin(&env, &escrow, Symbol::new(&env, "large_claim"), signers);
 
         let contribution: i128 = Self::get_persistent_investor_contribution(&env, investor.clone());
         ensure(&env, contribution > 0, EscrowError::NoContributionToClaim);
@@ -4225,7 +4299,9 @@ impl LiquifactEscrow {
     /// with [`LiquifactEscrow::verify_investor_proof`] to confirm an investor's
     /// contribution and pro-rata share without iterating on-chain storage.
     pub fn get_funding_close_merkle_root(env: Env) -> Option<BytesN<32>> {
-        env.storage().instance().get(&DataKey::FundingCloseMerkleRoot)
+        env.storage()
+            .instance()
+            .get(&DataKey::FundingCloseMerkleRoot)
     }
 
     /// Effective yield (bps) for this investor after their **first** deposit; later [`LiquifactEscrow::fund`]
@@ -4295,8 +4371,9 @@ impl LiquifactEscrow {
     pub fn get_investor_yield_slippage(env: Env, investor: Address) -> (i64, i64, i64) {
         // env.clone(): env is used again after this call for the InvestorEffectiveYield read.
         let escrow = Self::get_escrow(env.clone());
-        let actual_yield_bps = Self::get_persistent_investor_effective_yield(&env, investor.clone())
-            .unwrap_or(escrow.yield_bps);
+        let actual_yield_bps =
+            Self::get_persistent_investor_effective_yield(&env, investor.clone())
+                .unwrap_or(escrow.yield_bps);
         let expected_yield_bps = escrow.yield_bps;
         let deviation_bps = (actual_yield_bps - expected_yield_bps).abs();
 
@@ -4354,10 +4431,8 @@ impl LiquifactEscrow {
         let escrow = Self::get_escrow(env.clone());
 
         // Get optional dependent state.
-        let snapshot_opt: Option<FundingCloseSnapshot> = env
-            .storage()
-            .instance()
-            .get(&DataKey::FundingCloseSnapshot);
+        let snapshot_opt: Option<FundingCloseSnapshot> =
+            env.storage().instance().get(&DataKey::FundingCloseSnapshot);
         let unique_funder_count: u32 = env
             .storage()
             .instance()
@@ -4615,9 +4690,7 @@ impl LiquifactEscrow {
                 .instance()
                 .set(&DataKey::LegalHoldReason, &reason);
         } else {
-            env.storage()
-                .instance()
-                .remove(&DataKey::LegalHoldReason);
+            env.storage().instance().remove(&DataKey::LegalHoldReason);
         }
 
         LegalHoldChanged {
@@ -4726,7 +4799,7 @@ impl LiquifactEscrow {
     /// Requires admin authorization. This prevents accidental cache pollution by non-admins.
     pub fn enable_yield_auto_distribution(env: Env) {
         let escrow = Self::load_escrow_require_admin(&env);
-        
+
         env.storage()
             .instance()
             .set(&DataKey::YieldAutoDistributionEnabled, &true);
@@ -4751,7 +4824,7 @@ impl LiquifactEscrow {
     /// Requires the current [`InvoiceEscrow::admin`].
     pub fn disable_yield_auto_distribution(env: Env) {
         let escrow = Self::load_escrow_require_admin(&env);
-        
+
         env.storage()
             .instance()
             .set(&DataKey::YieldAutoDistributionEnabled, &false);
@@ -4967,8 +5040,6 @@ impl LiquifactEscrow {
         let reason = String::from_str(&env, "");
         Self::set_legal_hold(env, false, reason);
     }
-
-
 
     pub fn update_funding_target(env: Env, new_target: i128) -> InvoiceEscrow {
         ensure(
@@ -5270,21 +5341,15 @@ impl LiquifactEscrow {
     /// - SHA-256 checksum of exported fields (for integrity).
     pub fn export_state(env: Env) -> EscrowSnapshot {
         let escrow = Self::get_escrow(env.clone());
-        let schema_version: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::Version)
-            .unwrap_or(0);
+        let schema_version: u32 = env.storage().instance().get(&DataKey::Version).unwrap_or(0);
         let legal_hold: bool = env
             .storage()
             .instance()
             .get(&DataKey::LegalHold)
             .unwrap_or(false);
 
-        let funding_close_snapshot: Option<FundingCloseSnapshot> = env
-            .storage()
-            .instance()
-            .get(&DataKey::FundingCloseSnapshot);
+        let funding_close_snapshot: Option<FundingCloseSnapshot> =
+            env.storage().instance().get(&DataKey::FundingCloseSnapshot);
 
         let unique_funder_count: u32 = env
             .storage()
@@ -5298,10 +5363,8 @@ impl LiquifactEscrow {
             .get(&DataKey::AllowlistActive)
             .unwrap_or(false);
 
-        let collateral: Option<SmeCollateralCommitment> = env
-            .storage()
-            .instance()
-            .get(&DataKey::SmeCollateralPledge);
+        let collateral: Option<SmeCollateralCommitment> =
+            env.storage().instance().get(&DataKey::SmeCollateralPledge);
 
         let primary_attestation_hash: Option<BytesN<32>> = env
             .storage()
@@ -5316,15 +5379,10 @@ impl LiquifactEscrow {
 
         let funding_token = Self::funding_token_or_fail(&env);
         let treasury = Self::treasury_or_fail(&env);
-        let registry: Option<Address> = env
-            .storage()
-            .instance()
-            .get(&DataKey::RegistryRef);
+        let registry: Option<Address> = env.storage().instance().get(&DataKey::RegistryRef);
 
-        let yield_tiers: Option<Vec<YieldTier>> = env
-            .storage()
-            .instance()
-            .get(&DataKey::YieldTierTable);
+        let yield_tiers: Option<Vec<YieldTier>> =
+            env.storage().instance().get(&DataKey::YieldTierTable);
 
         let min_contribution_floor: i128 = env
             .storage()
@@ -5337,10 +5395,8 @@ impl LiquifactEscrow {
             .instance()
             .get(&DataKey::MaxUniqueInvestorsCap);
 
-        let max_per_investor_cap: Option<i128> = env
-            .storage()
-            .instance()
-            .get(&DataKey::MaxPerInvestorCap);
+        let max_per_investor_cap: Option<i128> =
+            env.storage().instance().get(&DataKey::MaxPerInvestorCap);
 
         let legal_hold_clear_delay: u64 = env
             .storage()
@@ -5348,10 +5404,8 @@ impl LiquifactEscrow {
             .get(&DataKey::LegalHoldClearDelay)
             .unwrap_or(0);
 
-        let legal_hold_clearable_at: Option<u64> = env
-            .storage()
-            .instance()
-            .get(&DataKey::LegalHoldClearableAt);
+        let legal_hold_clearable_at: Option<u64> =
+            env.storage().instance().get(&DataKey::LegalHoldClearableAt);
 
         let distributed_principal: i128 = env
             .storage()
@@ -5359,15 +5413,9 @@ impl LiquifactEscrow {
             .get(&DataKey::DistributedPrincipal)
             .unwrap_or(0);
 
-        let funding_deadline: Option<u64> = env
-            .storage()
-            .instance()
-            .get(&DataKey::FundingDeadline);
+        let funding_deadline: Option<u64> = env.storage().instance().get(&DataKey::FundingDeadline);
 
-        let pending_admin: Option<Address> = env
-            .storage()
-            .instance()
-            .get(&DataKey::PendingAdmin);
+        let pending_admin: Option<Address> = env.storage().instance().get(&DataKey::PendingAdmin);
 
         // Compute SHA-256 checksum of all exported fields for integrity verification.
         // This is deterministic across identical state snapshots.
@@ -5378,10 +5426,9 @@ impl LiquifactEscrow {
                 escrow.invoice_id.to_string().as_bytes().clone(),
             ],
         ));
-        let checksum: BytesN<32> = checksum_data.try_into().unwrap_or(BytesN::<32>::from_array(
-            &env,
-            &[0u8; 32],
-        ));
+        let checksum: BytesN<32> = checksum_data
+            .try_into()
+            .unwrap_or(BytesN::<32>::from_array(&env, &[0u8; 32]));
 
         EscrowSnapshot {
             escrow,
@@ -5486,7 +5533,7 @@ impl LiquifactEscrow {
     }
 
     /// Core funding implementation shared by fund and fund_with_commitment.
-    /// 
+    ///
     /// # Parameters
     /// - `simple_fund`: true for standard fund (non-tiered), false for fund_with_commitment (tiered)
     /// - `committed_lock_secs`: lock duration in seconds (only used when simple_fund is false)
@@ -5668,7 +5715,10 @@ impl LiquifactEscrow {
                         EscrowError::ConcentrationLimitExceeded as u32,
                         "Investor concentration exceeds configured cap",
                         "Reduce funding amount or wait for other investors to fund",
-                        &format!("Current: {}%, Limit: {}%", concentration_pct, concentration_cap),
+                        &format!(
+                            "Current: {}%, Limit: {}%",
+                            concentration_pct, concentration_cap
+                        ),
                     );
                     Self::emit_error_diagnostic(&env, diagnostic);
                     fail(&env, EscrowError::ConcentrationLimitExceeded);
@@ -5950,9 +6000,7 @@ impl LiquifactEscrow {
 
             if new_ledger_total > rate as i128 {
                 // Auto-pause: velocity exceeded — block further funding.
-                env.storage()
-                    .instance()
-                    .set(&DataKey::FundingPaused, &true);
+                env.storage().instance().set(&DataKey::FundingPaused, &true);
 
                 FundingPausedEvent {
                     name: symbol_short!("fund_paus"),
@@ -6124,7 +6172,10 @@ impl LiquifactEscrow {
                         EscrowError::ConcentrationLimitExceeded as u32,
                         "Investor concentration exceeds configured cap",
                         "Reduce funding amount or wait for other investors to fund",
-                        &format!("Current: {}%, Limit: {}%", concentration_pct, concentration_cap),
+                        &format!(
+                            "Current: {}%, Limit: {}%",
+                            concentration_pct, concentration_cap
+                        ),
                     );
                     Self::emit_error_diagnostic(&env, diagnostic);
                     fail(&env, EscrowError::ConcentrationLimitExceeded);
@@ -6403,7 +6454,6 @@ impl LiquifactEscrow {
         .publish(&env);
 
         escrow
-
     }
 
     /// Retry / standalone settlement notification. Invokes the configured
@@ -6456,8 +6506,6 @@ impl LiquifactEscrow {
         .publish(&env);
     }
 
-
-
     pub fn settle(env: Env, partial_amount: Option<i128>) -> InvoiceEscrow {
         ensure(
             &env,
@@ -6484,11 +6532,20 @@ impl LiquifactEscrow {
         if escrow.maturity > 0 {
             if now < escrow.maturity {
                 let seconds_remaining = escrow.maturity.saturating_sub(now);
-                let context_msg = String::from_str(&env, &format!("Maturity timestamp: {} (in ~{} seconds)", escrow.maturity, seconds_remaining));
+                let context_msg = String::from_str(
+                    &env,
+                    &format!(
+                        "Maturity timestamp: {} (in ~{} seconds)",
+                        escrow.maturity, seconds_remaining
+                    ),
+                );
                 let diagnostic = ErrorDiagnostic {
                     error_code: EscrowError::MaturityNotReached as u32,
                     message: String::from_str(&env, "Escrow has not reached maturity yet"),
-                    recovery_action: String::from_str(&env, "Wait until maturity timestamp to settle"),
+                    recovery_action: String::from_str(
+                        &env,
+                        "Wait until maturity timestamp to settle",
+                    ),
                     context: Some(context_msg),
                 };
                 Self::emit_error_diagnostic(&env, diagnostic);
@@ -6502,14 +6559,22 @@ impl LiquifactEscrow {
             .instance()
             .get(&DataKey::SettledAmount)
             .unwrap_or(0);
-        
+
         let new_settled_amount = match partial_amount {
             Some(amount) => {
                 // Validate partial amount
                 ensure(&env, amount > 0, EscrowError::SettlementNotPositive);
-                ensure(&env, amount <= escrow.funded_amount, EscrowError::SettlementExceedsFunded);
-                ensure(&env, amount + current_settled_amount <= escrow.funded_amount, EscrowError::SettlementExceedsFunded);
-                
+                ensure(
+                    &env,
+                    amount <= escrow.funded_amount,
+                    EscrowError::SettlementExceedsFunded,
+                );
+                ensure(
+                    &env,
+                    amount + current_settled_amount <= escrow.funded_amount,
+                    EscrowError::SettlementExceedsFunded,
+                );
+
                 current_settled_amount + amount
             }
             None => escrow.funded_amount, // Full settlement
@@ -6522,7 +6587,7 @@ impl LiquifactEscrow {
 
         // Determine if this is a full or partial settlement
         let is_full_settlement = new_settled_amount == escrow.funded_amount;
-        
+
         if is_full_settlement {
             escrow.status = 2;
         }
@@ -6544,7 +6609,7 @@ impl LiquifactEscrow {
                 // For partial settlement, use only the amount being settled now
                 new_settled_amount - current_settled_amount
             };
-            
+
             if settlement_basis > 0 {
                 // Gross coupon = settlement_basis * yield_bps / 10_000
                 let gross_coupon = settlement_basis
@@ -6559,7 +6624,9 @@ impl LiquifactEscrow {
                         .checked_mul(fee_percentage as i128)
                         .unwrap_or_else(|| fail(&env, EscrowError::ComputePayoutArithmeticOverflow))
                         .checked_div(10_000)
-                        .unwrap_or_else(|| fail(&env, EscrowError::ComputePayoutArithmeticOverflow));
+                        .unwrap_or_else(|| {
+                            fail(&env, EscrowError::ComputePayoutArithmeticOverflow)
+                        });
 
                     if fee_amount > 0 {
                         let net_coupon = gross_coupon.saturating_sub(fee_amount);
@@ -6619,28 +6686,37 @@ impl LiquifactEscrow {
                         .checked_mul(escrow.yield_bps as i128)
                         .unwrap_or_else(|| fail(&env, EscrowError::ComputePayoutArithmeticOverflow))
                         .checked_div(10_000)
-                        .unwrap_or_else(|| fail(&env, EscrowError::ComputePayoutArithmeticOverflow));
+                        .unwrap_or_else(|| {
+                            fail(&env, EscrowError::ComputePayoutArithmeticOverflow)
+                        });
 
                     let net_coupon = if fee_percentage > 0 && gross_coupon > 0 {
                         let fee_amount = gross_coupon
                             .checked_mul(fee_percentage as i128)
-                            .unwrap_or_else(|| fail(&env, EscrowError::ComputePayoutArithmeticOverflow))
+                            .unwrap_or_else(|| {
+                                fail(&env, EscrowError::ComputePayoutArithmeticOverflow)
+                            })
                             .checked_div(10_000)
-                            .unwrap_or_else(|| fail(&env, EscrowError::ComputePayoutArithmeticOverflow));
+                            .unwrap_or_else(|| {
+                                fail(&env, EscrowError::ComputePayoutArithmeticOverflow)
+                            });
                         gross_coupon.saturating_sub(fee_amount)
                     } else {
                         gross_coupon
                     };
 
-                    let settle_pool = new_settled_amount
-                        .checked_add(net_coupon)
-                        .unwrap_or_else(|| fail(&env, EscrowError::ComputePayoutArithmeticOverflow));
+                    let settle_pool =
+                        new_settled_amount
+                            .checked_add(net_coupon)
+                            .unwrap_or_else(|| {
+                                fail(&env, EscrowError::ComputePayoutArithmeticOverflow)
+                            });
 
                     // Iterate over all investors and pre-compute their yield shares
                     // For now, we'll store markers; in production, indexers enumerate InvestorContribution keys
                     // and we iterate them here. For MVP, we emit an event and investors claim normally.
                     // TODO: Implement efficient investor enumeration for batch snapshot computation
-                    
+
                     YieldDistSnapshotCreated {
                         name: symbol_short!("yld_snap"),
                         invoice_id: escrow.invoice_id.clone(),
@@ -6688,10 +6764,10 @@ impl LiquifactEscrow {
 
     /// Clone a settled escrow template to create a new independent escrow instance.
     ///
-    /// Creates a fresh escrow for a **new invoice** (supplied by caller) with the same 
+    /// Creates a fresh escrow for a **new invoice** (supplied by caller) with the same
     /// configuration parameters as the template escrow. The template must be in **settled** status
     /// (status == 2). All immutable configuration (yield_bps, maturity, yield tiers, min contribution,
-    /// max unique investors, max per investor, legal hold clear delay, registry) is copied; 
+    /// max unique investors, max per investor, legal hold clear delay, registry) is copied;
     /// per-investor state, funding state, and legal holds are **reset** for the new instance.
     ///
     /// # Parameters
@@ -6827,7 +6903,6 @@ impl LiquifactEscrow {
     /// - [`EscrowError::WithdrawalNotFunded`] — escrow not in funded state.
     /// - [`EscrowError::InsufficientContractBalance`] — contract holds less than `funded_amount`.
 
-
     pub fn withdraw(env: Env, caller: Address) -> InvoiceEscrow {
         ensure(
             &env,
@@ -6954,7 +7029,7 @@ impl LiquifactEscrow {
 
         // env.clone(): env is used again after this call for storage reads, ledger timestamp, and publish.
         let escrow = Self::get_escrow(env.clone());
-        
+
         // For partial settlement: allow claims if there's a settled amount (status 1 with SettledAmount)
         // For full settlement: require status 2
         let settled_amount: i128 = env
@@ -6962,13 +7037,9 @@ impl LiquifactEscrow {
             .instance()
             .get(&DataKey::SettledAmount)
             .unwrap_or(0);
-        
+
         let is_claimable = escrow.status == 2 || (escrow.status == 1 && settled_amount > 0);
-        ensure(
-            &env,
-            is_claimable,
-            EscrowError::InvestorClaimNotSettled,
-        );
+        ensure(&env, is_claimable, EscrowError::InvestorClaimNotSettled);
 
         let now = env.ledger().timestamp();
 
@@ -6990,15 +7061,21 @@ impl LiquifactEscrow {
 
         let not_before: u64 =
             Self::get_persistent_investor_claim_not_before(&env, investor.clone());
-        
+
         if now < not_before {
             let context_msg = if not_before > 0 {
                 let blocks_remaining = not_before.saturating_sub(now);
-                String::from_str(&env, &format!("Can claim in {} seconds (block {}) from now", blocks_remaining, not_before))
+                String::from_str(
+                    &env,
+                    &format!(
+                        "Can claim in {} seconds (block {}) from now",
+                        blocks_remaining, not_before
+                    ),
+                )
             } else {
                 String::from_str(&env, "Commitment lock is active")
             };
-            
+
             let diagnostic = ErrorDiagnostic {
                 error_code: EscrowError::InvestorCommitmentLockNotExpired as u32,
                 message: String::from_str(&env, "Investment is in commitment lock period"),
@@ -7022,10 +7099,12 @@ impl LiquifactEscrow {
 
         // Check for pre-computed yield distribution (if auto-distribution is enabled)
         let mut total_payout = 0i128;
-        if let Some(yield_dist) = Self::get_persistent_yield_distribution_share(&env, investor.clone()) {
+        if let Some(yield_dist) =
+            Self::get_persistent_yield_distribution_share(&env, investor.clone())
+        {
             // Use pre-computed payout amount from settlement snapshot
             total_payout = yield_dist.payout_amount;
-            
+
             // Emit auto-distributed event to signal pre-computed yield usage
             AutoDistributedYieldClaimed {
                 name: symbol_short!("auto_yld"),
@@ -7048,9 +7127,10 @@ impl LiquifactEscrow {
 
         if has_reinvestment_election {
             // Calculate the yield portion of the payout
-            let original_contribution: i128 = Self::get_persistent_investor_contribution(&env, investor.clone());
+            let original_contribution: i128 =
+                Self::get_persistent_investor_contribution(&env, investor.clone());
             let yield_amount = total_payout.saturating_sub(original_contribution);
-            
+
             if yield_amount > 0 {
                 // Add yield to reinvested amount (becomes new principal)
                 let current_reinvested: i128 = env
@@ -7058,22 +7138,23 @@ impl LiquifactEscrow {
                     .persistent()
                     .get(&DataKey::InvestorReinvestedAmount(investor.clone()))
                     .unwrap_or(0);
-                
+
                 let new_reinvested = current_reinvested
                     .checked_add(yield_amount)
                     .unwrap_or_else(|| fail(&env, EscrowError::ComputePayoutArithmeticOverflow));
-                
-                env.storage()
-                    .persistent()
-                    .set(&DataKey::InvestorReinvestedAmount(investor.clone()), &new_reinvested);
-                
+
+                env.storage().persistent().set(
+                    &DataKey::InvestorReinvestedAmount(investor.clone()),
+                    &new_reinvested,
+                );
+
                 // Update audit log with reinvestment event
                 let mut audit_log: Vec<ReinvestmentAuditEntry> = env
                     .storage()
                     .instance()
                     .get(&DataKey::ReinvestmentAuditLog)
                     .unwrap_or(Vec::new(&env));
-                
+
                 // Find and update the most recent entry for this investor, or add new one
                 let mut found = false;
                 for i in (0..audit_log.len()).rev() {
@@ -7086,7 +7167,7 @@ impl LiquifactEscrow {
                         break;
                     }
                 }
-                
+
                 if !found && (audit_log.len() as u32) < MAX_REINVESTMENT_AUDIT_ENTRIES {
                     let entry = ReinvestmentAuditEntry {
                         investor: investor.clone(),
@@ -7098,11 +7179,11 @@ impl LiquifactEscrow {
                     };
                     audit_log.push_back(entry);
                 }
-                
+
                 env.storage()
                     .instance()
                     .set(&DataKey::ReinvestmentAuditLog, &audit_log);
-                
+
                 // Emit reinvestment event
                 YieldReinvested {
                     name: symbol_short!("yld_ri_ev"),
@@ -7296,11 +7377,7 @@ impl LiquifactEscrow {
 
         // Verify delegation exists and is not revoked.
         let delegated_addr = Self::get_persistent_yield_claim_delegate(&env, investor.clone());
-        ensure(
-            &env,
-            delegated_addr.is_some(),
-            EscrowError::NoDelegationSet,
-        );
+        ensure(&env, delegated_addr.is_some(), EscrowError::NoDelegationSet);
 
         // Check if delegation is revoked.
         ensure(
@@ -7322,7 +7399,7 @@ impl LiquifactEscrow {
 
         // env.clone(): used for escrow read and ledger timestamp.
         let escrow = Self::get_escrow(env.clone());
-        
+
         // For partial settlement: allow claims if there's a settled amount (status 1 with SettledAmount)
         // For full settlement: require status 2
         let settled_amount: i128 = env
@@ -7330,13 +7407,9 @@ impl LiquifactEscrow {
             .instance()
             .get(&DataKey::SettledAmount)
             .unwrap_or(0);
-        
+
         let is_claimable = escrow.status == 2 || (escrow.status == 1 && settled_amount > 0);
-        ensure(
-            &env,
-            is_claimable,
-            EscrowError::InvestorClaimNotSettled,
-        );
+        ensure(&env, is_claimable, EscrowError::InvestorClaimNotSettled);
 
         let not_before: u64 =
             Self::get_persistent_investor_claim_not_before(&env, investor.clone());
@@ -7505,15 +7578,17 @@ impl LiquifactEscrow {
             .checked_add(amount)
             .unwrap_or_else(|| fail(&env, EscrowError::ComputePayoutArithmeticOverflow));
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::InvestorReinvestedAmount(investor.clone()), &new_reinvested);
+        env.storage().persistent().set(
+            &DataKey::InvestorReinvestedAmount(investor.clone()),
+            &new_reinvested,
+        );
         env.storage()
             .persistent()
             .set(&DataKey::InvestorReinvestElection(investor.clone()), &true);
-        env.storage()
-            .persistent()
-            .set(&DataKey::InvestorReinvestTarget(investor.clone()), &target_escrow);
+        env.storage().persistent().set(
+            &DataKey::InvestorReinvestTarget(investor.clone()),
+            &target_escrow,
+        );
 
         let mut audit_log: Vec<ReinvestmentAuditEntry> = env
             .storage()
@@ -7536,7 +7611,8 @@ impl LiquifactEscrow {
             .instance()
             .set(&DataKey::ReinvestmentAuditLog, &audit_log);
 
-        let target_total = target.funded_amount
+        let target_total = target
+            .funded_amount
             .checked_add(amount)
             .unwrap_or_else(|| fail(&env, EscrowError::FundedAmountOverflow));
 
@@ -7611,7 +7687,7 @@ impl LiquifactEscrow {
             .persistent()
             .get(&DataKey::InvestorReinvestedAmount(investor.clone()))
             .unwrap_or(0);
-        
+
         // Total principal includes both original contribution and any reinvested yield
         let total_investor_principal = contribution
             .checked_add(reinvested_amount)
@@ -7637,7 +7713,7 @@ impl LiquifactEscrow {
             .instance()
             .get(&DataKey::SettledAmount)
             .unwrap_or(0);
-        
+
         // If no settlement has occurred yet, return 0
         if settled_amount == 0 {
             return 0;
@@ -7736,7 +7812,8 @@ impl LiquifactEscrow {
             return false;
         };
 
-        let computed_root = Self::compute_merkle_root_from_proof(&env, &investor, contribution, &proof);
+        let computed_root =
+            Self::compute_merkle_root_from_proof(&env, &investor, contribution, &proof);
         computed_root == stored_root
     }
 
@@ -8187,10 +8264,10 @@ impl LiquifactEscrow {
     }
 
     /// Pause the escrow due to a dispute (e.g., invoice validity challenge).
-    /// 
+    ///
     /// Freezes the escrow independently of legal hold: blocks `fund`, `settle`, and `withdraw`
     /// until either auto-expiration (after `duration_secs`) or manual resumption.
-    /// 
+    ///
     /// # Parameters
     /// - `ticket_id`: Support/dispute ticket reference (non-empty String for audit trail).
     /// - `duration_secs`: How long the pause lasts (must be positive).
@@ -8255,7 +8332,7 @@ impl LiquifactEscrow {
     /// Resume (unpause) a dispute pause on the escrow.
     ///
     /// Clears the dispute pause, allowing normal escrow operations to resume.
-    /// 
+    ///
     /// # Guard ordering
     ///
     /// 1. Dispute pause existence check.
@@ -8267,23 +8344,15 @@ impl LiquifactEscrow {
     pub fn resume_dispute(env: Env) {
         let escrow = Self::load_escrow_require_admin(&env);
 
-        let pause_state: Option<DisputePauseState> = env
-            .storage()
-            .instance()
-            .get(&DataKey::DisputePaused);
+        let pause_state: Option<DisputePauseState> =
+            env.storage().instance().get(&DataKey::DisputePaused);
 
-        ensure(
-            &env,
-            pause_state.is_some(),
-            EscrowError::NoPauseActive,
-        );
+        ensure(&env, pause_state.is_some(), EscrowError::NoPauseActive);
 
         let state = pause_state.unwrap();
         let now = env.ledger().timestamp();
 
-        env.storage()
-            .instance()
-            .remove(&DataKey::DisputePaused);
+        env.storage().instance().remove(&DataKey::DisputePaused);
 
         DisputePausedEvt {
             name: symbol_short!("disppause"),
@@ -8301,14 +8370,12 @@ impl LiquifactEscrow {
     /// Includes auto-expiration logic: if the pause was configured to expire and
     /// current ledger time has reached/exceeded the expiration, the pause is
     /// considered inactive (although the storage entry is not automatically cleaned).
-    /// 
+    ///
     /// # Returns
     /// `true` if a dispute pause exists and has not auto-expired; `false` otherwise.
     fn is_dispute_paused(env: &Env) -> bool {
-        let pause_state: Option<DisputePauseState> = env
-            .storage()
-            .instance()
-            .get(&DataKey::DisputePaused);
+        let pause_state: Option<DisputePauseState> =
+            env.storage().instance().get(&DataKey::DisputePaused);
 
         if let Some(state) = pause_state {
             let now = env.ledger().timestamp();
@@ -8323,10 +8390,8 @@ impl LiquifactEscrow {
     ///
     /// Returns `None` if no pause is active or if the pause has auto-expired.
     pub fn get_dispute_pause(env: Env) -> Option<DisputePauseState> {
-        let pause_state: Option<DisputePauseState> = env
-            .storage()
-            .instance()
-            .get(&DataKey::DisputePaused);
+        let pause_state: Option<DisputePauseState> =
+            env.storage().instance().get(&DataKey::DisputePaused);
 
         if let Some(state) = pause_state {
             let now = env.ledger().timestamp();
