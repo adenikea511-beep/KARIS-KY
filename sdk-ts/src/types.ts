@@ -101,6 +101,12 @@ export interface EscrowTemplate {
 // Event streaming types
 // ---------------------------------------------------------------------------
 
+/** Decoded `AttestationBoundEvt` payload; the hash is lowercase hex and u64 time is decimal. */
+export interface AttestationBoundEvt {
+  hash: string;
+  ledger_timestamp: string;
+}
+
 /** A contract event returned by Soroban RPC, with the escrow contract ID attached. */
 export interface EscrowEvent {
   id: string;

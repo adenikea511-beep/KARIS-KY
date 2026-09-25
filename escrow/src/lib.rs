@@ -1667,6 +1667,14 @@ pub struct PrimaryAttestationBound {
 }
 
 #[contractevent]
+pub struct AttestationBoundEvt {
+    #[topic]
+    pub name: Symbol,
+    pub hash: BytesN<32>,
+    pub ledger_timestamp: u64,
+}
+
+#[contractevent]
 pub struct AttestationDigestAppended {
     #[topic]
     pub name: Symbol,
@@ -3493,6 +3501,12 @@ impl LiquifactEscrow {
             name: symbol_short!("att_bind"),
             invoice_id: escrow.invoice_id.clone(),
             digest: digest.clone(),
+        }
+        .publish(&env);
+        AttestationBoundEvt {
+            name: symbol_short!("att_bound"),
+            hash: digest,
+            ledger_timestamp: env.ledger().timestamp(),
         }
         .publish(&env);
     }

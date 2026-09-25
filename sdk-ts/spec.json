@@ -343,6 +343,7 @@
     { "name": "BeneficiaryRotated", "topics": ["name", "invoice_id"], "description": "Emitted when SME address changes" },
     { "name": "CollateralRecordedEvt", "topics": ["name"], "description": "Emitted when SME records collateral metadata" },
     { "name": "PrimaryAttestationBound", "topics": ["name"], "description": "Emitted when primary attestation hash is bound" },
+    { "name": "AttestationBoundEvt", "topics": ["name"], "description": "Emitted when primary attestation hash is bound; data contains the 32-byte hash and ledger timestamp" },
     { "name": "AttestationDigestAppended", "topics": ["name"], "description": "Emitted when attestation digest is appended" },
     { "name": "AttestationDigestRevoked", "topics": ["name"], "description": "Emitted when attestation digest is revoked" },
     { "name": "AllowlistEnabledChanged", "topics": ["name"], "description": "Emitted when allowlist gate is toggled" },

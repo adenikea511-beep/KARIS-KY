@@ -29,7 +29,7 @@ independently and recompute the hash to confirm the anchor matches.
 | Auth | `InvoiceEscrow::admin` |
 | Write policy | **Single-set** — panics if already bound |
 | Storage key | `DataKey::PrimaryAttestationHash` |
-| Event | `PrimaryAttestationBound { invoice_id, digest }` |
+| Event | `AttestationBoundEvt` (new) and `PrimaryAttestationBound` (legacy) |
 
 Binds the canonical compliance document digest for this escrow instance. Intended for the
 initial KYC/KYB bundle that covers the SME and the invoice at origination.
@@ -114,10 +114,11 @@ Off-chain                              On-chain
    internal document store.
                                        4. Admin calls:
                                           bind_primary_attestation_hash(digest)
-                                          → PrimaryAttestationBound event emitted
+                                          → AttestationBoundEvt emitted with hash + ledger timestamp
+                                          → PrimaryAttestationBound legacy event emitted
                                           → DataKey::PrimaryAttestationHash set (immutable)
 
-5. Indexer reads PrimaryAttestationBound.
+5. Indexer reads AttestationBoundEvt.
    Off-chain verifier fetches bundle,
    recomputes SHA-256, confirms match.
 ```

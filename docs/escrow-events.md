@@ -152,6 +152,17 @@ Emitted when an admin toggles the compliance hold.
 **Data Payload:**
 - `active` (u32): `1` for enabled, `0` for cleared.
 
+### `AttestationBoundEvt`
+Emitted after a successful `bind_primary_attestation_hash`. The legacy
+`PrimaryAttestationBound` event is also emitted for existing consumers.
+
+**Topics:**
+1. `att_bound` (Symbol)
+
+**Data Payload:**
+- `hash` (`BytesN<32>`) — the bound SHA-256 digest; represent as 64 hexadecimal characters off-chain
+- `ledger_timestamp` (`u64`) — ledger timestamp at binding, represented as a decimal string in JSON
+
 ---
 
 ## 🛠️ Indexing Recommendations

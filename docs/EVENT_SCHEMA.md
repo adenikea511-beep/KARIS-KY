@@ -33,7 +33,7 @@ short routing symbol passed with `symbol_short!(...)`, such as `funded` or
 
 ## Event Catalog
 
-The current contract defines 19 event structs.
+The current contract defines 21 event structs.
 
 | Rust event | `name` symbol | Entrypoint(s) |
 |---|---:|---|
@@ -54,6 +54,7 @@ The current contract defines 19 event structs.
 | `InvestorRefundedEvt` | `refunded` | `refund` |
 | `TreasuryDustSwept` | `dust_sw` | `sweep_terminal_dust` |
 | `PrimaryAttestationBound` | `att_bind` | `bind_primary_attestation_hash` |
+| `AttestationBoundEvt` | `att_bound` | `bind_primary_attestation_hash` |
 | `AttestationDigestAppended` | `att_app` | `append_attestation_digest` |
 | `AllowlistEnabledChanged` | `al_ena` | `set_allowlist_active` |
 | `InvestorAllowlistChanged` | `al_set` | `set_investor_allowlisted`, `set_investors_allowlisted` |
@@ -387,6 +388,28 @@ Data:
 |---|---|
 | `invoice_id` | `Symbol` |
 | `digest` | `BytesN<32>` |
+
+### `AttestationBoundEvt`
+
+Emitted after successful `bind_primary_attestation_hash`, alongside the legacy
+`PrimaryAttestationBound` event.
+
+Topics:
+
+| Index | Field | Type | Value |
+|---:|---|---|---|
+| 0 | fixed event topic | `Symbol` | `attestation_bound_evt` |
+| 1 | `name` | `Symbol` | `att_bound` |
+
+Data:
+
+| Field | Type |
+|---|---|
+| `hash` | `BytesN<32>` |
+| `ledger_timestamp` | `u64` |
+
+Represent `hash` as 64 hexadecimal characters and `ledger_timestamp` as a
+decimal string in JSON. The timestamp is read from the ledger during binding.
 
 ### `AttestationDigestAppended`
 

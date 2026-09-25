@@ -45,11 +45,21 @@ fn setup_with_init(env: &Env) -> (LiquifactEscrowClient<'_>, Address) {
 fn test_bind_primary_hash_stores_and_reads() {
     let env = Env::default();
     let (client, _) = setup_with_init(&env);
+    let contract_id = client.address.clone();
     let d = digest(&env, 0xAB);
     client.bind_primary_attestation_hash(&d);
     // getter returns BytesN<32>; check by converting our bytes to BytesN for comparison.
     let stored = client.get_primary_attestation_hash().unwrap();
     assert_eq!(stored, BytesN::from_array(&env, &[0xABu8; 32]));
+    assert_eq!(
+        env.events().all().events().last().unwrap().clone(),
+        AttestationBoundEvt {
+            name: symbol_short!("att_bound"),
+            hash: BytesN::from_array(&env, &[0xABu8; 32]),
+            ledger_timestamp: 12_345,
+        }
+        .to_xdr(&env, &contract_id)
+    );
 }
 
 /// Before any bind the getter returns `None`.
