@@ -236,7 +236,7 @@ cargo clippy --all-targets -- -D warnings
 | `get_dispute_pause` | Retrieve active dispute pause state (ticket, timestamps). |
 | `bind_primary_attestation_hash` | Admin sets a single-write 32-byte digest. |
 | `append_attestation_digest` | Admin appends to bounded audit log. |
-| `record_sme_collateral_commitment` | SME records collateral pledge (metadata only). |
+| `record_sme_collateral_commitment` | ⚠️ **Metadata only — not proof of custody.** SME records collateral pledge. See [`docs/escrow-sme-collateral.md`](docs/escrow-sme-collateral.md). |
 | `get_escrow` | Read current escrow state. |
 | `get_version` | Read stored `DataKey::Version`. |
 
